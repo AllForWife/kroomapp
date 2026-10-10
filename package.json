@@ -1,0 +1,61 @@
+{
+  "name": "kroom-desktop",
+  "productName": "K ROOM",
+  "version": "1.0.0",
+  "description": "K ROOM for Windows: the website in its own window, without the browser's autoplay gate and background throttling",
+  "author": "K ROOM",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64",
+    "dist:zip": "electron-builder --win zip --x64",
+    "release": "electron-builder --win --x64 --publish never"
+  },
+  "build": {
+    "appId": "xyz.548754321.kroom",
+    "productName": "K ROOM",
+    "protocols": [
+      {
+        "name": "K ROOM",
+        "schemes": [
+          "kroom"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "offline.html",
+      "package.json"
+    ],
+    "win": {
+      "icon": "icon.png",
+      "artifactName": "KRoom-win-${arch}.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "KRoom-Setup.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.16.1"
+  }
+}

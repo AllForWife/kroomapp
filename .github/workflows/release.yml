@@ -1,0 +1,30 @@
+# Push a tag like v1.0.1 → GitHub builds the Windows installer and attaches it to a Release.
+# The newest one is always at https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-Setup.exe
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/electron/install.js # (newer npm may skip electron's own download script)
+      - run: npm run release
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/KRoom-Setup.exe dist/KRoom-win-x64.zip \
+            --title "K ROOM for Windows $GITHUB_REF_NAME" \
+            --notes "下載 **KRoom-Setup.exe** 安裝（免系統管理員權限）；或下載 zip 解壓後執行「K ROOM.exe」。第一次執行 Windows 可能顯示 SmartScreen 警告：按「其他資訊 → 仍要執行」。"

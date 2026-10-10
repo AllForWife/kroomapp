@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>K ROOM</title>
+<style>
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: radial-gradient(circle, #2a1033, #07060d); color: #fff; font: 16px system-ui, "Microsoft JhengHei", sans-serif; text-align: center; }
+  h1 { font-size: 26px; margin: 0 0 10px; } p { opacity: .75; margin: 6px 0; } small { opacity: .5; }
+  button { margin-top: 18px; padding: 10px 26px; border: 0; border-radius: 999px; background: linear-gradient(90deg, #ff3fa8, #8a4dff); color: #fff; font: 600 16px system-ui; cursor: pointer; }
+</style>
+</head>
+<body>
+<div>
+  <h1>連不上 K ROOM 伺服器</h1>
+  <p>請確認網路連線；伺服器可能正在重新啟動。</p>
+  <p id="next"></p>
+  <small id="err"></small><br>
+  <button id="retry">重新連線</button>
+</div>
+<script>
+  const q = new URLSearchParams(location.search), url = q.get('url') || 'https://ktv2.548754321.xyz';
+  document.getElementById('err').textContent = q.get('err') || '';
+  const go = () => { location.href = url; };
+  document.getElementById('retry').onclick = go;
+  let n = 10; const tick = () => { document.getElementById('next').textContent = `${n} 秒後自動重試`; if (n-- <= 0) go(); else setTimeout(tick, 1000); }; tick();
+</script>
+</body>
+</html>
