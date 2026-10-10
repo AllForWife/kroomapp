@@ -31,6 +31,8 @@ function startUrl() {
   try { const u = new URL(raw); if (u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1') return u.href; } catch { /* not a URL */ }
   return DEFAULT_URL;
 }
+// ⚙ 設定 → 解除螢幕更新率限制: frames are no longer held to the screen's refresh (vsync); read at start, so a change needs a restart
+if (readJson(configFile()).unlockFps) { app.commandLine.appendSwitch('disable-frame-rate-limit'); app.commandLine.appendSwitch('disable-gpu-vsync'); }
 const START = startUrl();
 const ORIGIN = new URL(START).origin;
 
@@ -77,6 +79,18 @@ function handoff(kind) {
 }
 app.on('second-instance', (_e, argv) => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } deepLink(argv); });
 ipcMain.handle('login-with-browser', (e) => originOf(e.senderFrame?.url || '') === ORIGIN && handoff('login'));
+// the page's ⚙ 設定 (src/ui/appsettings.ts): the app-level display switch, and a restart that comes back into the same room
+const fromSite = (e) => originOf(e.senderFrame?.url || '') === ORIGIN;
+ipcMain.handle('get-display', (e) => { if (!fromSite(e)) return null; const c = readJson(configFile()); return { unlockFps: !!c.unlockFps, betaUpdates: !!c.betaUpdates, version: app.getVersion() }; });
+// 🧪 App 測試版 (shown to admins only): this install also takes betas (GitHub pre-releases); turned on, it looks for one right away
+ipcMain.handle('set-beta', (e, on) => {
+  if (!fromSite(e)) return false;
+  writeJson(configFile(), { ...readJson(configFile()), betaUpdates: !!on });
+  if (app.isPackaged && !process.env.KROOM_NO_UPDATE) { autoUpdater.allowPrerelease = app.getVersion().includes('-') || !!on; if (on) void autoUpdater.checkForUpdates().catch(() => {}); }
+  return true;
+});
+ipcMain.handle('set-unlock-fps', (e, on) => { if (!fromSite(e)) return false; writeJson(configFile(), { ...readJson(configFile()), unlockFps: !!on }); return true; });
+ipcMain.handle('relaunch', async (e) => { if (!fromSite(e)) return; await keepRoom(); app.relaunch(); app.quit(); });
 function guard(wc) {
   wc.setWindowOpenHandler(({ url }) => {
     if (isGoogleAuth(url)) return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, autoHideMenuBar: true, parent: win || undefined } };
@@ -160,7 +174,8 @@ function updates() {
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
   // betas (1.0.4-beta.1) are GitHub pre-releases: a normal install only ever takes the newest normal release (GitHub's releases/latest); a beta
   // install also takes newer betas (it looks for beta.yml, finds none and uses the release's latest.yml). No channel is set: that would break it
-  autoUpdater.allowPrerelease = app.getVersion().includes('-');
+  // 🧪 an admin can switch this install to betas too (the tablet's App 測試版: config.json betaUpdates)
+  autoUpdater.allowPrerelease = app.getVersion().includes('-') || !!readJson(configFile()).betaUpdates;
   autoUpdater.on('error', (e) => console.warn('update', e?.message || e)); // (offline, GitHub busy, the zip version…: try again next time)
   autoUpdater.on('update-downloaded', async (info) => {
     const r = await dialog.showMessageBox(win || undefined, { type: 'info', title: 'K ROOM', message: `新版本 ${info.version} 已經下載好了`, detail: '現在重新啟動就會更新；選「稍後」的話，下次關閉 App 時自動更新。', buttons: ['現在重新啟動', '稍後'], defaultId: 0, cancelId: 1 });

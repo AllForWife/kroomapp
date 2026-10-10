@@ -9,4 +9,10 @@ try {
 } catch { /* another page (offline.html), storage off */ }
 contextBridge.exposeInMainWorld('kroomApp', {
   /** open the sign-in page in the normal browser; the browser hands the account back by a kroom:// link */
-  loginWithBrowser: () => ipcRenderer.invoke('login-with-browser'),});
+  loginWithBrowser: () => ipcRenderer.invoke('login-with-browser'),
+  /** ⚙ 設定: the app's own display switch (解除螢幕更新率限制, read when the app starts) and a restart back into the same room */
+  getDisplay: () => ipcRenderer.invoke('get-display'),
+  setUnlockFps: (on) => ipcRenderer.invoke('set-unlock-fps', !!on),
+  relaunch: () => ipcRenderer.invoke('relaunch'),
+  /** 🧪 this install also takes betas (the page shows the switch to admins only) */
+  setBeta: (on) => ipcRenderer.invoke('set-beta', !!on),});
