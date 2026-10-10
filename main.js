@@ -136,6 +136,30 @@ function switchSite(origin, link = '') {
   const args = process.argv.slice(1).filter((a) => !/^kroom:\/\//i.test(a) && !a.startsWith('--url=')); // (a --url= from a shortcut would win over the choice)
   app.relaunch({ args: link ? [...args, link] : args }); app.quit();
 }
+/* ---- the device id: the page's own (localStorage ktv.device, src/net/client.ts) was lost whenever its storage was — another site (each has its own),
+   a run closed hard before it reached the disk, a reinstall — and the admin panel saw a "new device" each time. In the app it comes from the hardware:
+   the motherboard's SMBIOS system UUID (kept in the firmware: it survives reinstalling Windows and changing disks), else the motherboard's serial
+   number, else the BIOS serial; only without any of those Windows' MachineGuid, and last a random one kept in config.json. Placeholders makers leave
+   ("To be filled by O.E.M.", all-F / all-0 UUIDs …) do not count. Never sent as it is: a one-way hash with K ROOM's own salt, shaped like the ids
+   before. Read once per start (about a second, while the app starts); preload.js hands it to every page before its scripts run. ---- */
+const JUNK = /^(|0+|f+|none|null|n\/a|na|default string|to be filled by o\.e\.m\.?|not applicable|not specified|system serial number|base board serial number|chassis serial number|serial number|123456789|0123456789|1234567890|[0-9a-f]{8}-?0{4}-?0{4}-?0{4}-?0{12}|0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12}|03000200-0400-0500-0006-000700080009)$/i;
+const toId = (src) => { const h = crypto.createHash('sha256').update('kroom-device:' + src).digest('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`; };
+let device = '';
+const deviceReady = new Promise((resolve) => {
+  const PS = "$ErrorActionPreference='SilentlyContinue'; 'uuid=' + (Get-CimInstance Win32_ComputerSystemProduct).UUID; 'board=' + (Get-CimInstance Win32_BaseBoard).SerialNumber; 'bios=' + (Get-CimInstance Win32_BIOS).SerialNumber";
+  require('child_process').execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS], { windowsHide: true, timeout: 8000 }, (_err, out) => {
+    const v = {}; for (const l of String(out || '').split(/\r?\n/)) { const m = /^(uuid|board|bios)=(.*)$/.exec(l.trim()); if (m) v[m[1]] = m[2].trim(); }
+    const kind = ['uuid', 'board', 'bios'].find((k) => v[k] && !JUNK.test(v[k]) && !/^(.)\1+$/.test(v[k].replace(/-/g, '')));
+    if (kind) device = toId(`${kind}:${v[kind].toLowerCase()}`);
+    else {
+      try { const g = /MachineGuid\s+REG_SZ\s+([0-9a-f-]{20,})/i.exec(require('child_process').execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], { encoding: 'utf8', windowsHide: true, timeout: 3000 }))?.[1]; if (g) device = toId(g.toLowerCase()); } catch { /* no access */ }
+      if (!device) { const c = readJson(configFile()); device = /^[\w-]{8,64}$/.test(String(c.deviceId || '')) ? String(c.deviceId) : crypto.randomUUID(); if (device !== c.deviceId) writeJson(configFile(), { ...c, deviceId: device }); }
+    }
+    resolve(device);
+  });
+});
+ipcMain.on('device-id', (e) => { e.returnValue = fromSite(e) ? device || null : null; });
+app.on('before-quit', () => { try { session.defaultSession.flushStorageData(); } catch { /* not ready */ } }); // (what the pages stored is on disk before the app goes)
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
 ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
 ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
@@ -236,8 +260,9 @@ function updates() {
 }
 
 app.on('web-contents-created', (_e, wc) => guard(wc));
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!firstInstance) return;
+  await Promise.race([deviceReady, new Promise((r) => setTimeout(r, 9000))]); // (the device id is read while Electron starts; the first page needs it)
   Menu.setApplicationMenu(null);
   permissions(session.defaultSession);
   createWindow();

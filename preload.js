@@ -1,6 +1,12 @@
 // What the K ROOM page can ask of the app (window.kroomApp; read by src/account.ts). Only the K ROOM site gets an answer (checked in main.js).
 const { contextBridge, ipcRenderer } = require('electron');
 
+// the app's device id (main.js 'device-id': from this computer itself), put where the page looks for it (localStorage ktv.device) before its scripts run
+try {
+  const id = ipcRenderer.sendSync('device-id');
+  if (id && localStorage.getItem('ktv.device') !== id) localStorage.setItem('ktv.device', id);
+} catch { /* another page (offline.html), storage off */ }
+
 // back from an update restart (main.js keepRoom): the room the player was in goes back where the page looks for it (src/main.ts readRejoin,
 // sessionStorage — which a restart empties), before the page's own scripts run, so the page rejoins that room by itself. Once, within 10 min.
 try {
