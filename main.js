@@ -158,6 +158,9 @@ async function keepRoom() {
 function updates() {
   if (!app.isPackaged || process.env.KROOM_NO_UPDATE) return;
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
+  // betas (1.0.4-beta.1) are GitHub pre-releases: a normal install only ever takes the newest normal release (GitHub's releases/latest); a beta
+  // install also takes newer betas (it looks for beta.yml, finds none and uses the release's latest.yml). No channel is set: that would break it
+  autoUpdater.allowPrerelease = app.getVersion().includes('-');
   autoUpdater.on('error', (e) => console.warn('update', e?.message || e)); // (offline, GitHub busy, the zip version…: try again next time)
   autoUpdater.on('update-downloaded', async (info) => {
     const r = await dialog.showMessageBox(win || undefined, { type: 'info', title: 'K ROOM', message: `新版本 ${info.version} 已經下載好了`, detail: '現在重新啟動就會更新；選「稍後」的話，下次關閉 App 時自動更新。', buttons: ['現在重新啟動', '稍後'], defaultId: 0, cancelId: 1 });
