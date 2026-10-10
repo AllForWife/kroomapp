@@ -1,7 +1,7 @@
 {
   "name": "kroom-desktop",
   "productName": "K ROOM",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "K ROOM for Windows: the website in its own window, without the browser's autoplay gate and background throttling",
   "author": "K ROOM",
   "private": true,
@@ -15,6 +15,13 @@
   "build": {
     "appId": "xyz.548754321.kroom",
     "productName": "K ROOM",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "AllForWife",
+        "repo": "kroomapp"
+      }
+    ],
     "protocols": [
       {
         "name": "K ROOM",
@@ -57,5 +64,8 @@
   "devDependencies": {
     "electron": "44.4.5",
     "electron-builder": "26.16.1"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
   }
 }

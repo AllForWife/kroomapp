@@ -2,5 +2,4 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('kroomApp', {
   /** open the sign-in page in the normal browser; the browser hands the account back by a kroom:// link */
-  loginWithBrowser: () => ipcRenderer.invoke('login-with-browser'),
-});
+  loginWithBrowser: () => ipcRenderer.invoke('login-with-browser'),});

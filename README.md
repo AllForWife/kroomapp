@@ -4,7 +4,7 @@
 
 ## 下載
 
-**[⬇ 下載安裝檔 KRoom-Setup.exe](https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-Setup.exe)**　（Windows 10／11，64 位元，免系統管理員權限）
+**[⬇ 下載安裝檔 KRoom-Setup.exe](https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-Setup.exe)**　（Windows 10／11，64 位元，一般使用者帳號就能安裝）
 
 免安裝版：[KRoom-win-x64.zip](https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-win-x64.zip)，解壓後執行「K ROOM.exe」。所有版本：[Releases](https://github.com/AllForWife/kroomapp/releases)。
 
@@ -16,9 +16,14 @@
 - 視窗縮小或切到背景也不會卡頓（歌曲對時、語音照常）
 - 優先使用獨立顯示卡
 - 「🌐 用瀏覽器登入」：瀏覽器已經登入的話，按一下就能登入 App
-- F11 全螢幕、F5 重新整理；管理員按 Ctrl+Shift+A 開管理員頁，Alt+Home 回遊戲
+- 「使用的麥克風」可以選任何一支麥克風
+- 細的深色捲軸，不是 Windows 灰色的舊捲軸
+- 連不上伺服器時自動重試
+- F11 全螢幕、F5 重新整理
 
 App 只是 K ROOM 網站的視窗，網站更新後不用重新安裝。
+
+**自動更新**：安裝版（KRoom-Setup.exe）會自動檢查新版本，在背景下載，下載好會問你要不要現在重新啟動；選「稍後」的話，下次關閉 App 時自動更新。（免安裝的 zip 版不會自動更新。）
 
 ## 開發
 
