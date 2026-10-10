@@ -4,7 +4,7 @@
 //  - the dedicated GPU is preferred, and the GPU is not blocklisted for the site after a GPU crash (fewer 「無法啟動 3D」)
 //  - the microphone is allowed for the K ROOM site only; links to other sites open in the normal browser
 // The server address: --url=https://… > env KROOM_URL > %APPDATA%/K ROOM/config.json {"url": "…"} > DEFAULT_URL
-const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -65,10 +65,42 @@ else app.setAsDefaultProtocolClient('kroom', process.execPath, [path.resolve(pro
 function deepLink(argv) {
   const raw = argv.find((a) => /^kroom:\/\//i.test(a)); if (!raw) return;
   let u; try { u = new URL(raw); } catch { return; }
+  if (u.hostname === 'open') return void openFromBrowser(u);
   const kind = u.hostname, p = pending[kind], state = u.searchParams.get('state'), code = u.searchParams.get('code');
   if (!HANDOFF[kind] || !p || !state || !code || state !== p.state || Date.now() - p.at > LOGIN_MS) return;
   delete pending[kind];
   if (win) void win.loadURL(`${ORIGIN}${HANDOFF[kind].claim}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`);
+}
+/* ---- 🖥 用 App 開啟 on the website (src/ui/openapp.ts): kroom://open?code=…&state=…&rejoin=… — started in the browser, so there is no pending state
+   here: a one-time code the signed-in browser made (2 min, once) signs the app in as that account, and the room record the browser was in (rejoin,
+   base64url JSON) is handed to the page the same way as after an update restart (localStorage → preload.js → the page rejoins). ---- */
+async function openFromBrowser(u) {
+  if (!win) return;
+  if (win.isMinimized()) win.restore(); win.focus();
+  const upTo = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]); // (never stuck: a page that is still busy just gets less help)
+  if (win.webContents.isLoadingMainFrame()) await upTo(new Promise((r) => win.webContents.once('did-finish-load', r)), 15000); // (not isLoading(): the page's iframes — the Google button — keep that true)
+  let rec = null, room = '';
+  try { const j = JSON.parse(Buffer.from(u.searchParams.get('rejoin') || '', 'base64url').toString('utf8')); if (j && typeof j.room === 'string' && j.room.length <= 60) { rec = JSON.stringify({ ...j, at: Date.now() }); room = j.room; } } catch { /* no room */ }
+  const code = u.searchParams.get('code'), state = u.searchParams.get('state');
+  // a link like this can come from any page, so a code never signs the app in silently: whose code it is is asked first (without spending it), and
+  // the player confirms — unless the app is already signed in as that very account (then it only moves rooms)
+  if (code && state) {
+    let name = null;
+    try { const r = await fetch(`${ORIGIN}/api/auth/app/peek?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`); if (r.ok) name = String((await r.json()).name ?? ''); } catch { /* offline */ }
+    if (name === null) return; // (a used, expired or made-up code: nothing happens)
+    let mine = null;
+    if (isApp(win.webContents.getURL())) try { mine = await upTo(win.webContents.executeJavaScript(`fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json()).then((j) => (j.account ? j.account.name || '' : null)).catch(() => null)`), 3000); } catch { /* the page went away */ }
+    if (mine !== name) {
+      const who = name || '（還沒取名字的帳號）';
+      const ok = process.env.KROOM_TEST_CONFIRM ? (console.log(`CONFIRM_ASKED ${who}`), process.env.KROOM_TEST_CONFIRM === 'yes') // (tests: the answer is given)
+        : (await dialog.showMessageBox(win, { type: 'question', title: 'K ROOM', message: `用「${who}」登入 K ROOM App？`, detail: `這是從瀏覽器的「用 App 開啟」傳來的。${mine !== null ? `App 現在登入的是「${mine || '（還沒取名字的帳號）'}」，會換成「${who}」。` : ''}${room ? `登入後會進入房間「${room}」。` : ''}\n如果不是你剛剛在瀏覽器按的，請按「取消」。`, buttons: ['登入並開啟', '取消'], defaultId: 0, cancelId: 1, noLink: true })).response === 0;
+      if (!ok) return;
+    }
+  }
+  if (rec && isApp(win.webContents.getURL())) {
+    try { await upTo(win.webContents.executeJavaScript(`try { localStorage.setItem('ktv.rejoin.update', ${JSON.stringify(JSON.stringify({ rec, saved: Date.now() }))}); } catch {} true`), 3000); session.defaultSession.flushStorageData(); } catch { /* the page went away */ }
+  }
+  void win.loadURL(code && state ? `${ORIGIN}/api/auth/app/claim?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}` : `${ORIGIN}/`);
 }
 /** open the normal browser for a hand-off (kind: 'login' | 'admin') */
 function handoff(kind) {
@@ -158,6 +190,8 @@ function createWindow() {
     void win.loadFile(path.join(__dirname, 'offline.html'), { query: { url: START, err: `${desc} (${code})` } });
   });
   void win.loadURL(START);
+  // started by a kroom:// link (the app was not running: 用 App 開啟 on the website): it is handled once the first page is up
+  if (process.argv.some((a) => /^kroom:\/\//i.test(a))) { const argv = process.argv; win.webContents.once('did-finish-load', () => setTimeout(() => deepLink(argv), 300)); }
 }
 
 /* ---- updates: the installed app (KRoom-Setup.exe) checks the GitHub releases (package.json build.publish) at start and every 4 hours, downloads a
