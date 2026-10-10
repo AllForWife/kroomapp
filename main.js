@@ -71,8 +71,7 @@ function deepLink(argv) {
 /** open the normal browser for a hand-off (kind: 'login' | 'admin') */
 function handoff(kind) {
   const state = crypto.randomBytes(24).toString('base64url'); pending[kind] = { state, at: Date.now() };
-  const url = ORIGIN + HANDOFF[kind].start(state);
-  if (process.env.KROOM_TEST_PRINT_LOGIN) console.log(`HANDOFF_URL ${kind} ${url}`); // (tests: the browser is played by the test)
+  const url = ORIGIN + HANDOFF[kind].start(state);  if (process.env.KROOM_TEST_PRINT_LOGIN) console.log(`HANDOFF_URL ${kind} ${url}`); // (tests: the browser is played by the test)
   else void shell.openExternal(url);
   return true;
 }
@@ -149,13 +148,20 @@ function createWindow() {
 
 /* ---- updates: the installed app (KRoom-Setup.exe) checks the GitHub releases (package.json build.publish) at start and every 4 hours, downloads a
    newer version in the background and installs it when the app closes — or right away, if the player says so. The zip version does not update. ---- */
+/** before an update restart: the page's rejoin record (sessionStorage, gone after a restart) is kept in localStorage; preload.js puts it back */
+async function keepRoom() {
+  if (!win || !isApp(win.webContents.getURL())) return;
+  try { await win.webContents.executeJavaScript(`try { const r = sessionStorage.getItem('ktv.rejoin'); if (r) localStorage.setItem('ktv.rejoin.update', JSON.stringify({ rec: r, saved: Date.now() })); } catch {} true`); } catch { /* the page is gone */ }
+  session.defaultSession.flushStorageData(); // (written to disk now: the installer closes the app right after)
+  await new Promise((r) => setTimeout(r, 300));
+}
 function updates() {
   if (!app.isPackaged || process.env.KROOM_NO_UPDATE) return;
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('error', (e) => console.warn('update', e?.message || e)); // (offline, GitHub busy, the zip version…: try again next time)
   autoUpdater.on('update-downloaded', async (info) => {
     const r = await dialog.showMessageBox(win || undefined, { type: 'info', title: 'K ROOM', message: `新版本 ${info.version} 已經下載好了`, detail: '現在重新啟動就會更新；選「稍後」的話，下次關閉 App 時自動更新。', buttons: ['現在重新啟動', '稍後'], defaultId: 0, cancelId: 1 });
-    if (r.response === 0) autoUpdater.quitAndInstall();
+    if (r.response === 0) { await keepRoom(); autoUpdater.quitAndInstall(true, true); } // (silent install, then the new version starts by itself)
   });
   const check = () => void autoUpdater.checkForUpdates().catch(() => {});
   check(); setInterval(check, 4 * 3600_000);
