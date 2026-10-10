@@ -26,4 +26,6 @@ contextBridge.exposeInMainWorld('kroomApp', {
   getSites: () => ipcRenderer.invoke('get-sites'),
   /** 🔊 the volume (0–1) for the Bilibili player inside the page (the page itself cannot reach it) */
   setEmbedVolume: (v) => ipcRenderer.invoke('embed-volume', Number(v)),
+  /** 🎵 the Bilibili player kept in step with the room: op time / seek / rate / pause / play → { t, paused, ended, stall } or null (no player yet) */
+  embedMedia: (op, arg) => ipcRenderer.invoke('embed-media', String(op), Number(arg)),
   setSite: (key) => ipcRenderer.invoke('set-site', String(key)),});

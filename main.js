@@ -179,6 +179,29 @@ function applyEmbedVolume() {
   for (const f of win.webContents.mainFrame.framesInSubtree) if (f !== win.webContents.mainFrame && isBili(f.url)) f.executeJavaScript(volJs(embedVol)).catch(() => {});
 }
 ipcMain.handle('embed-volume', (e, v) => { if (!fromSite(e)) return false; const n = Number(v); if (!(n >= 0 && n <= 1)) return false; embedVol = n; applyEmbedVolume(); return true; });
+/* ---- 🎵 the Bilibili player kept in step with the room: that embed has no command API either, so a Bilibili song ran on its own clock — it was never
+   corrected and drifted away from the singers' voices (and from pause / seek / speed). The page drives the <video> in Bilibili's frame like its own
+   direct video (src/music/stage.ts): time 4×/s, seek, pause / play, playback rate (kept: the player puts its own back). ---- */
+const mediaJs = (op, arg) => `(() => {
+  const all = (root, out) => { for (const m of root.querySelectorAll('video, audio')) out.push(m); for (const e of root.querySelectorAll('*')) if (e.shadowRoot) all(e.shadowRoot, out); return out; };
+  const own = (x) => /\\/bfs\\/static\\//.test(x.currentSrc || x.src || ''); // (Bilibili's own clips — error.mp4 when a video cannot play here — are not the song)
+  let m = window.__kroomMedia; if (!m || !m.isConnected || own(m)) { const l = all(document, []).filter((x) => !own(x)); m = window.__kroomMedia = l.find((x) => x.tagName === 'VIDEO') || l[0] || null; }
+  if (!m) return null;
+  const op = ${JSON.stringify(op)}, arg = ${JSON.stringify(arg)};
+  if (op === 'rate') window.__kroomRate = arg; else if (op === 'seek') m.currentTime = arg; else if (op === 'pause') m.pause(); else if (op === 'play') m.play().catch(() => {});
+  if (window.__kroomRate && Math.abs(m.playbackRate - window.__kroomRate) > 0.001) m.playbackRate = window.__kroomRate;
+  return { t: m.currentTime, paused: m.paused, ended: m.ended, stall: m.readyState < 3 || m.seeking };
+})()`;
+ipcMain.handle('embed-media', async (e, op, arg) => {
+  if (!fromSite(e) || !win || !['time', 'seek', 'rate', 'pause', 'play'].includes(op)) return null;
+  const n = Number(arg); if ((op === 'seek' && !(n >= 0)) || (op === 'rate' && !(n >= 0.25 && n <= 4))) return null;
+  const frames = win.webContents.mainFrame.framesInSubtree.filter((f) => f !== win.webContents.mainFrame && isBili(f.url));
+  for (const f of frames) {
+    const r = await Promise.race([f.executeJavaScript(mediaJs(op, op === 'seek' || op === 'rate' ? n : null)).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))]);
+    if (r) return r;
+  }
+  return null;
+});
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
 ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
 ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
