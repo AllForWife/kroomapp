@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('kroomApp', {
   setUnlockFps: (on) => ipcRenderer.invoke('set-unlock-fps', !!on),
   relaunch: () => ipcRenderer.invoke('relaunch'),
   /** 🧪 this install also takes betas (the page shows the switch to admins only) */
-  setBeta: (on) => ipcRenderer.invoke('set-beta', !!on),});
+  setBeta: (on) => ipcRenderer.invoke('set-beta', !!on),
+  /** 🌐 站台: which K ROOM site the app is on (main / test), and moving it to the other one (a restart; the page shows it to admins only) */
+  getSites: () => ipcRenderer.invoke('get-sites'),
+  setSite: (key) => ipcRenderer.invoke('set-site', String(key)),});

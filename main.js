@@ -3,14 +3,17 @@
 //  - nothing is slowed down in the background (timers, rendering, a minimised / covered window) — the song's drift correction and the voices keep time
 //  - the dedicated GPU is preferred, and the GPU is not blocklisted for the site after a GPU crash (fewer 「無法啟動 3D」)
 //  - the microphone is allowed for the K ROOM site only; links to other sites open in the normal browser
-// The server address: --url=https://… > env KROOM_URL > %APPDATA%/K ROOM/config.json {"url": "…"} > DEFAULT_URL
+// The server address: --url=https://… > env KROOM_URL > %APPDATA%/K ROOM/config.json {"url": "…"} > DEFAULT_URL (the main site)
 const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_URL = 'https://ktv2.548754321.xyz';
+/** the two K ROOM sites: players use the main one; an admin can switch the app to the testing one on the main menu (🌐 站台; config.json url) */
+const SITES = { main: 'https://ktv.548712345.xyz', test: 'https://ktv2.548754321.xyz' };
+const DEFAULT_URL = SITES.main;
+const siteOf = (origin) => Object.keys(SITES).find((k) => SITES[k] === origin) || '';
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -76,6 +79,9 @@ function deepLink(argv) {
    base64url JSON) is handed to the page the same way as after an update restart (localStorage → preload.js → the page rejoins). ---- */
 async function openFromBrowser(u) {
   if (!win) return;
+  // the link came from the other K ROOM site (site=<its origin>): the app moves to that site first and handles the link there (its code only works there)
+  const from = u.searchParams.get('site') || '';
+  if (from && from !== ORIGIN && siteOf(from)) { switchSite(from, u.href); return; }
   if (win.isMinimized()) win.restore(); win.focus();
   const upTo = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]); // (never stuck: a page that is still busy just gets less help)
   if (win.webContents.isLoadingMainFrame()) await upTo(new Promise((r) => win.webContents.once('did-finish-load', r)), 15000); // (not isLoading(): the page's iframes — the Google button — keep that true)
@@ -123,6 +129,16 @@ ipcMain.handle('set-beta', (e, on) => {
 });
 ipcMain.handle('set-unlock-fps', (e, on) => { if (!fromSite(e)) return false; writeJson(configFile(), { ...readJson(configFile()), unlockFps: !!on }); return true; });
 ipcMain.handle('relaunch', async (e) => { if (!fromSite(e)) return; await keepRoom(); app.relaunch(); app.quit(); });
+/** 🌐 站台: the app moves to the other K ROOM site — saved in config.json, then a restart (everything here is per site: the cookies, the allowed origin).
+ *  link: a kroom:// link to handle once the app is up on that site */
+function switchSite(origin, link = '') {
+  writeJson(configFile(), { ...readJson(configFile()), url: origin });
+  const args = process.argv.slice(1).filter((a) => !/^kroom:\/\//i.test(a) && !a.startsWith('--url=')); // (a --url= from a shortcut would win over the choice)
+  app.relaunch({ args: link ? [...args, link] : args }); app.quit();
+}
+// the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
+ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
+ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
 function guard(wc) {
   wc.setWindowOpenHandler(({ url }) => {
     if (isGoogleAuth(url)) return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, autoHideMenuBar: true, parent: win || undefined } };

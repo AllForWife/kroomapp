@@ -18,7 +18,7 @@
   <button id="retry">重新連線</button>
 </div>
 <script>
-  const q = new URLSearchParams(location.search), url = q.get('url') || 'https://ktv2.548754321.xyz';
+  const q = new URLSearchParams(location.search), url = q.get('url') || 'https://ktv.548712345.xyz';
   document.getElementById('err').textContent = q.get('err') || '';
   const go = () => { location.href = url; };
   document.getElementById('retry').onclick = go;
