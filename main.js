@@ -160,6 +160,25 @@ const deviceReady = new Promise((resolve) => {
 });
 ipcMain.on('device-id', (e) => { e.returnValue = fromSite(e) ? device || null : null; });
 app.on('before-quit', () => { try { session.defaultSession.flushStorageData(); } catch { /* not ready */ } }); // (what the pages stored is on disk before the app goes)
+/* ---- 🔊 the Bilibili player's volume: the page cannot reach into Bilibili's frame (another site), and that player has no volume command — the 伴奏音量
+   slider did nothing for a Bilibili song and players were sent to set Bilibili's own slider by hand (src/ui/bilivol.ts). The app can: the page says
+   the volume (src/music/stage.ts → 'embed-volume'), and every Bilibili frame gets its <video>/<audio> set to it — again every second (the player puts
+   its own back) and whenever a frame (re)loads. ---- */
+let embedVol = null;
+const isBili = (u) => { try { return /(^|\.)bilibili\.com$/.test(new URL(u).hostname); } catch { return false; } };
+const volJs = (v) => `(() => { window.__kroomVol = ${v};
+  if (!window.__kroomVolT) {
+    const media = (root, out) => { for (const m of root.querySelectorAll('video, audio')) out.push(m); for (const e of root.querySelectorAll('*')) if (e.shadowRoot) media(e.shadowRoot, out); return out; };
+    let found = [];
+    const set = () => { if (!found.length || found.some((m) => !m.isConnected)) found = media(document, []); for (const m of found) if (Math.abs(m.volume - window.__kroomVol) > 0.004) m.volume = window.__kroomVol; };
+    window.__kroomVolSet = set; window.__kroomVolT = setInterval(set, 1000);
+  }
+  window.__kroomVolSet(); return true; })()`;
+function applyEmbedVolume() {
+  if (!win || embedVol === null) return;
+  for (const f of win.webContents.mainFrame.framesInSubtree) if (f !== win.webContents.mainFrame && isBili(f.url)) f.executeJavaScript(volJs(embedVol)).catch(() => {});
+}
+ipcMain.handle('embed-volume', (e, v) => { if (!fromSite(e)) return false; const n = Number(v); if (!(n >= 0 && n <= 1)) return false; embedVol = n; applyEmbedVolume(); return true; });
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
 ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
 ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
@@ -222,6 +241,7 @@ function createWindow() {
     else if (i.alt && i.key === 'Home') { e.preventDefault(); void win.loadURL(ORIGIN + '/'); }
     else if (i.alt && i.key === 'ArrowLeft' && win.webContents.navigationHistory.canGoBack()) { e.preventDefault(); win.webContents.navigationHistory.goBack(); }
   });
+  win.webContents.on('did-frame-finish-load', (_e, isMain) => { if (!isMain) applyEmbedVolume(); }); // (a Bilibili player that just (re)loaded gets the volume)
   // Electron draws Windows' old grey scrollbars (Chrome on Windows 11 has thin ones): thin dark ones on the K ROOM pages instead
   win.webContents.on('dom-ready', () => { if (isApp(win.webContents.getURL())) void win.webContents.insertCSS(SCROLLBARS); });
   // the server cannot be reached: a small page that retries by itself (instead of Chromium's error page)

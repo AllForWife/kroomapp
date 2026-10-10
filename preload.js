@@ -24,4 +24,6 @@ contextBridge.exposeInMainWorld('kroomApp', {
   setBeta: (on) => ipcRenderer.invoke('set-beta', !!on),
   /** 🌐 站台: which K ROOM site the app is on (main / test), and moving it to the other one (a restart; the page shows it to admins only) */
   getSites: () => ipcRenderer.invoke('get-sites'),
+  /** 🔊 the volume (0–1) for the Bilibili player inside the page (the page itself cannot reach it) */
+  setEmbedVolume: (v) => ipcRenderer.invoke('embed-volume', Number(v)),
   setSite: (key) => ipcRenderer.invoke('set-site', String(key)),});
