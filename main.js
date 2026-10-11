@@ -4,7 +4,7 @@
 //  - the dedicated GPU is preferred, and the GPU is not blocklisted for the site after a GPU crash (fewer 「無法啟動 3D」)
 //  - the microphone is allowed for the K ROOM site only; links to other sites open in the normal browser
 // The server address: --url=https://… > env KROOM_URL > %APPDATA%/K ROOM/config.json {"url": "…"} > DEFAULT_URL (the main site)
-const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
+const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -144,20 +144,28 @@ function switchSite(origin, link = '') {
    before. Read once per start (about a second, while the app starts); preload.js hands it to every page before its scripts run. ---- */
 const JUNK = /^(|0+|f+|none|null|n\/a|na|default string|to be filled by o\.e\.m\.?|not applicable|not specified|system serial number|base board serial number|chassis serial number|serial number|123456789|0123456789|1234567890|[0-9a-f]{8}-?0{4}-?0{4}-?0{4}-?0{12}|0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12}|03000200-0400-0500-0006-000700080009)$/i;
 const toId = (src) => { const h = crypto.createHash('sha256').update('kroom-device:' + src).digest('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`; };
+// The hardware read takes 0.5–2 s and the first page waits for it: the id found last time (config.json hwId) is used at once, and the hardware is
+// read again in the background — a different answer (another motherboard) is kept for the next start.
 let device = '';
-const deviceReady = new Promise((resolve) => {
+const hwCached = (() => { const h = readJson(configFile()).hwId; return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(h || '')) ? String(h) : ''; })();
+if (hwCached) device = hwCached;
+const deviceRead = new Promise((resolve) => {
   const PS = "$ErrorActionPreference='SilentlyContinue'; 'uuid=' + (Get-CimInstance Win32_ComputerSystemProduct).UUID; 'board=' + (Get-CimInstance Win32_BaseBoard).SerialNumber; 'bios=' + (Get-CimInstance Win32_BIOS).SerialNumber";
   require('child_process').execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS], { windowsHide: true, timeout: 8000 }, (_err, out) => {
     const v = {}; for (const l of String(out || '').split(/\r?\n/)) { const m = /^(uuid|board|bios)=(.*)$/.exec(l.trim()); if (m) v[m[1]] = m[2].trim(); }
     const kind = ['uuid', 'board', 'bios'].find((k) => v[k] && !JUNK.test(v[k]) && !/^(.)\1+$/.test(v[k].replace(/-/g, '')));
-    if (kind) device = toId(`${kind}:${v[kind].toLowerCase()}`);
+    let id = '';
+    if (kind) id = toId(`${kind}:${v[kind].toLowerCase()}`);
     else {
-      try { const g = /MachineGuid\s+REG_SZ\s+([0-9a-f-]{20,})/i.exec(require('child_process').execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], { encoding: 'utf8', windowsHide: true, timeout: 3000 }))?.[1]; if (g) device = toId(g.toLowerCase()); } catch { /* no access */ }
-      if (!device) { const c = readJson(configFile()); device = /^[\w-]{8,64}$/.test(String(c.deviceId || '')) ? String(c.deviceId) : crypto.randomUUID(); if (device !== c.deviceId) writeJson(configFile(), { ...c, deviceId: device }); }
+      try { const g = /MachineGuid\s+REG_SZ\s+([0-9a-f-]{20,})/i.exec(require('child_process').execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], { encoding: 'utf8', windowsHide: true, timeout: 3000 }))?.[1]; if (g) id = toId(g.toLowerCase()); } catch { /* no access */ }
     }
+    if (id) { if (id !== hwCached) writeJson(configFile(), { ...readJson(configFile()), hwId: id }); }
+    else { const c = readJson(configFile()); id = /^[\w-]{8,64}$/.test(String(c.deviceId || '')) ? String(c.deviceId) : crypto.randomUUID(); if (id !== c.deviceId) writeJson(configFile(), { ...c, deviceId: id }); }
+    if (!device) device = id; // (a cached id stays for this run: the page already has it)
     resolve(device);
   });
 });
+const deviceReady = hwCached ? Promise.resolve(hwCached) : deviceRead;
 ipcMain.on('device-id', (e) => { e.returnValue = fromSite(e) ? device || null : null; });
 app.on('before-quit', () => { try { session.defaultSession.flushStorageData(); } catch { /* not ready */ } }); // (what the pages stored is on disk before the app goes)
 /* ---- 🔊 the Bilibili player's volume: the page cannot reach into Bilibili's frame (another site), and that player has no volume command — the 伴奏音量
@@ -219,6 +227,10 @@ ipcMain.handle('embed-play', async (e) => {
   for (const f of win.webContents.mainFrame.framesInSubtree) if (f !== win.webContents.mainFrame && isTwitch(f.url) && /^https:\/\/player\.twitch\.tv\//.test(f.url)) out.push(await Promise.race([f.executeJavaScript(twitchKickJs).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))]));
   return out.length ? out.join(',') : null;
 });
+// 🌙 while a song plays (src/main.ts): the screen does not sleep and the screensaver does not start — a listener may not touch the mouse for minutes
+let awakeId = -1;
+const stayAwake = (on) => { if (on && awakeId < 0) awakeId = powerSaveBlocker.start('prevent-display-sleep'); else if (!on && awakeId >= 0) { powerSaveBlocker.stop(awakeId); awakeId = -1; } else return; if (process.env.KROOM_TEST_LOG) console.log(`AWAKE ${on}`); }; // (tests: logged)
+ipcMain.handle('set-awake', (e, on) => { if (!fromSite(e)) return false; stayAwake(!!on); return true; });
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
 ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
 ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
@@ -261,6 +273,8 @@ const SCROLLBARS = `
 
 function createWindow() {
   const st = readJson(stateFile());
+  // the place saved last time is only used when it is still on a screen (a monitor unplugged since: the window would open where nobody sees it)
+  if (st.x != null && st.y != null && !screen.getAllDisplays().some(({ workArea: a }) => st.x + 120 <= a.x + a.width && st.x + (st.width || 1280) - 120 >= a.x && st.y >= a.y - 8 && st.y + 40 <= a.y + a.height)) { delete st.x; delete st.y; }
   win = new BrowserWindow({
     width: st.width || 1280, height: st.height || 800, x: st.x, y: st.y, minWidth: 640, minHeight: 400,
     backgroundColor: '#07060d', autoHideMenuBar: true, title: 'K ROOM', show: false,
@@ -281,6 +295,7 @@ function createWindow() {
     else if (i.alt && i.key === 'Home') { e.preventDefault(); void win.loadURL(ORIGIN + '/'); }
     else if (i.alt && i.key === 'ArrowLeft' && win.webContents.navigationHistory.canGoBack()) { e.preventDefault(); win.webContents.navigationHistory.goBack(); }
   });
+  win.webContents.on('did-navigate', () => stayAwake(false)); // (a new page asks again once its song plays)
   win.webContents.on('did-frame-finish-load', (_e, isMain) => { if (!isMain) applyEmbedVolume(); }); // (a Bilibili player that just (re)loaded gets the volume)
   // Electron draws Windows' old grey scrollbars (Chrome on Windows 11 has thin ones): thin dark ones on the K ROOM pages instead
   win.webContents.on('dom-ready', () => { if (isApp(win.webContents.getURL())) void win.webContents.insertCSS(SCROLLBARS); });
@@ -288,6 +303,29 @@ function createWindow() {
   win.webContents.on('did-fail-load', (_e, code, desc, url, isMain) => {
     if (!isMain || code === -3 /* aborted: a navigation replaced it */ || !isApp(url)) return;
     void win.loadFile(path.join(__dirname, 'offline.html'), { query: { url: START, err: `${desc} (${code})` } });
+  });
+  // the page crashed (the 3D page ran out of memory, a GPU driver reset…): the window stayed blank until the app was restarted. It is loaded again —
+  // back into the same room (the page's rejoin record, sessionStorage, outlives the crash); a page that keeps crashing gets a choice instead
+  const crashes = [];
+  win.webContents.on('render-process-gone', async (_e, d) => {
+    stayAwake(false); // (the page that asked for it is gone)
+    if (d.reason === 'clean-exit' || !win) return;
+    console.warn('page gone', d.reason, d.exitCode);
+    const now = Date.now(); crashes.push(now); while (crashes.length && now - crashes[0] > 120_000) crashes.shift();
+    if (crashes.length >= 3) {
+      const r = await dialog.showMessageBox(win, { type: 'error', title: 'K ROOM', message: 'K ROOM 一直當掉', detail: `畫面在兩分鐘內當掉了 ${crashes.length} 次（${d.reason}）。可以試試在點歌平板 → 🖥 畫面設定 把畫質調低。`, buttons: ['重新載入', '關閉 App'], defaultId: 0, cancelId: 1, noLink: true });
+      if (r.response === 1) { app.quit(); return; }
+      crashes.length = 0;
+    }
+    if (win && !win.isDestroyed()) win.webContents.reload();
+  });
+  // the page stopped answering (a long freeze): ask, instead of a window that does nothing
+  let asking = false;
+  win.on('unresponsive', async () => {
+    if (asking || !win) return; asking = true;
+    const r = await dialog.showMessageBox(win, { type: 'warning', title: 'K ROOM', message: 'K ROOM 沒有回應', detail: '可以再等一下，或重新載入（會回到同一個房間）。', buttons: ['等待', '重新載入'], defaultId: 0, cancelId: 0, noLink: true });
+    asking = false;
+    if (r.response === 1 && win && !win.isDestroyed()) win.webContents.forcefullyCrashRenderer(); // (render-process-gone loads it again)
   });
   void win.loadURL(START);
   // started by a kroom:// link (the app was not running: 用 App 開啟 on the website): it is handled once the first page is up

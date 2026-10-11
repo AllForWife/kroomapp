@@ -30,4 +30,6 @@ contextBridge.exposeInMainWorld('kroomApp', {
   embedMedia: (op, arg) => ipcRenderer.invoke('embed-media', String(op), Number(arg)),
   /** ▶ Twitch stuck on its play button: the app presses it inside Twitch's frame (only when its video is really not playing) */
   embedPlay: () => ipcRenderer.invoke('embed-play'),
+  /** 🌙 a song is playing: the screen does not go to sleep (or the screensaver) meanwhile */
+  setAwake: (on) => ipcRenderer.invoke('set-awake', !!on),
   setSite: (key) => ipcRenderer.invoke('set-site', String(key)),});
