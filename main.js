@@ -202,6 +202,23 @@ ipcMain.handle('embed-media', async (e, op, arg) => {
   }
   return null;
 });
+/* ---- ▶ Twitch stuck on its play button: Twitch does not autoplay a player drawn on our 3D TV (「style visibility」), and the page's play() through
+   Twitch's API does not load the stream either (the API even says it is playing). Its own ▶ pressed inside its frame does — so while the room plays,
+   the page asks (src/music/stage.ts, every 2 s) and the app presses it only when Twitch's <video> is really not playing. ---- */
+const isTwitch = (u) => { try { return /(^|\.)twitch\.tv$/.test(new URL(u).hostname); } catch { return false; } };
+const twitchKickJs = `(() => {
+  const v = document.querySelector('video'); if (v && !v.paused && v.readyState >= 2) return 'playing';
+  const b = document.querySelector('button[data-a-target="player-play-pause-button"]') || [...document.querySelectorAll('button')].find((x) => /^play\\b/i.test(x.getAttribute('aria-label') || ''));
+  if (!b) return 'no-button';
+  if ((v && !v.paused) || b.getAttribute('data-a-player-state') === 'playing') return 'loading'; // (buffering: a press now would pause it)
+  b.click(); return 'pressed';
+})()`;
+ipcMain.handle('embed-play', async (e) => {
+  if (!fromSite(e) || !win) return null;
+  const out = [];
+  for (const f of win.webContents.mainFrame.framesInSubtree) if (f !== win.webContents.mainFrame && isTwitch(f.url) && /^https:\/\/player\.twitch\.tv\//.test(f.url)) out.push(await Promise.race([f.executeJavaScript(twitchKickJs).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))]));
+  return out.length ? out.join(',') : null;
+});
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
 ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
 ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });

@@ -28,4 +28,6 @@ contextBridge.exposeInMainWorld('kroomApp', {
   setEmbedVolume: (v) => ipcRenderer.invoke('embed-volume', Number(v)),
   /** 🎵 the Bilibili player kept in step with the room: op time / seek / rate / pause / play → { t, paused, ended, stall } or null (no player yet) */
   embedMedia: (op, arg) => ipcRenderer.invoke('embed-media', String(op), Number(arg)),
+  /** ▶ Twitch stuck on its play button: the app presses it inside Twitch's frame (only when its video is really not playing) */
+  embedPlay: () => ipcRenderer.invoke('embed-play'),
   setSite: (key) => ipcRenderer.invoke('set-site', String(key)),});
