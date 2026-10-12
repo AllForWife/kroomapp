@@ -210,6 +210,23 @@ ipcMain.handle('embed-media', async (e, op, arg) => {
   }
   return null;
 });
+/* ---- 🎼 升降 Key: the room's key (src/music/stage.ts → 'embed-key', in semitones) is put into the YouTube / Bilibili player's frame, which takes the
+   video's sound into Web Audio and shifts its pitch (keyshift.js) — the page cannot reach into those frames, only the app can. Answers how late the
+   shifted sound is (the page plays ahead by that). The page asks again every few seconds while a key is set (a player that builds its <video>
+   late, a new video in the same frame); a frame that (re)loads gets it at once. ---- */
+const { keyJs } = require('./keyshift');
+let embedKey = 0;
+const isYt = (u) => { try { const x = new URL(u); return /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(x.hostname) && x.pathname.startsWith('/embed/'); } catch { return false; } };
+async function applyEmbedKey() {
+  if (!win) return null; let out = null;
+  for (const f of win.webContents.mainFrame.framesInSubtree) {
+    if (f === win.webContents.mainFrame || !(isBili(f.url) || isYt(f.url))) continue;
+    const r = await Promise.race([f.executeJavaScript(keyJs(embedKey)).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))]);
+    if (r && (!out || (r.wired && !out.wired))) out = r;
+  }
+  return out;
+}
+ipcMain.handle('embed-key', async (e, n) => { if (!fromSite(e)) return null; const k = Math.round(Number(n)); if (!(k >= -12 && k <= 12)) return null; embedKey = k; return applyEmbedKey(); });
 /* ---- ▶ Twitch stuck on its play button: Twitch does not autoplay a player drawn on our 3D TV (「style visibility」), and the page's play() through
    Twitch's API does not load the stream either (the API even says it is playing). Its own ▶ pressed inside its frame does — so while the room plays,
    the page asks (src/music/stage.ts, every 2 s) and the app presses it only when Twitch's <video> is really not playing. ---- */
@@ -296,7 +313,7 @@ function createWindow() {
     else if (i.alt && i.key === 'ArrowLeft' && win.webContents.navigationHistory.canGoBack()) { e.preventDefault(); win.webContents.navigationHistory.goBack(); }
   });
   win.webContents.on('did-navigate', () => stayAwake(false)); // (a new page asks again once its song plays)
-  win.webContents.on('did-frame-finish-load', (_e, isMain) => { if (!isMain) applyEmbedVolume(); }); // (a Bilibili player that just (re)loaded gets the volume)
+  win.webContents.on('did-frame-finish-load', (_e, isMain) => { if (!isMain) { applyEmbedVolume(); if (embedKey) void applyEmbedKey(); } }); // (a player that just (re)loaded gets the volume and the key) // (a Bilibili player that just (re)loaded gets the volume)
   // Electron draws Windows' old grey scrollbars (Chrome on Windows 11 has thin ones): thin dark ones on the K ROOM pages instead
   win.webContents.on('dom-ready', () => { if (isApp(win.webContents.getURL())) void win.webContents.insertCSS(SCROLLBARS); });
   // the server cannot be reached: a small page that retries by itself (instead of Chromium's error page)

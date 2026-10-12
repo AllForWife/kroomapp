@@ -1,7 +1,7 @@
 {
   "name": "kroom-desktop",
   "productName": "K ROOM",
-  "version": "1.0.8",
+  "version": "1.0.9-beta.1",
   "description": "K ROOM for Windows: the website in its own window, without the browser's autoplay gate and background throttling",
   "author": "K ROOM",
   "private": true,
@@ -36,6 +36,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "keyshift.js",
       "offline.html",
       "package.json"
     ],
