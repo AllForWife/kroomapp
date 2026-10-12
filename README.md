@@ -14,7 +14,7 @@
 
 **[⬇ 下載 KRoom-mac.dmg](https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-mac.dmg)**　（macOS 12 以上，Apple 晶片和 Intel 都能用）
 
-打開 dmg，把 K ROOM 拖到「應用程式」。App 沒有 Apple 簽章，第一次打開會被擋下：到「系統設定 → 隱私權與安全性」按「強制打開」（或在 Finder 對 K ROOM 按右鍵 →「打開」）。第一次用麥克風時 macOS 會問一次，按「允許」。
+打開 dmg，把 K ROOM 拖到「應用程式」。第一次用麥克風時 macOS 會問一次，按「允許」。
 
 ## 和用瀏覽器玩有什麼不同
 
@@ -30,7 +30,7 @@
 
 App 只是 K ROOM 網站的視窗，網站更新後不用重新安裝。
 
-**自動更新**：Windows 安裝版（KRoom-Setup.exe）會自動檢查新版本，在背景下載，下載好會問你要不要現在重新啟動；選「稍後」的話，下次關閉 App 時自動更新。更新時如果你在房間裡，重新啟動後會自動回到同一個房間。（免安裝的 zip 版不會自動更新。）Mac 版沒有 Apple 簽章，不能自己更新：有新版本時會問你要不要下載新的 dmg。
+**自動更新**：Windows 安裝版（KRoom-Setup.exe）會自動檢查新版本，在背景下載，下載好會問你要不要現在重新啟動；選「稍後」的話，下次關閉 App 時自動更新。更新時如果你在房間裡，重新啟動後會自動回到同一個房間。（免安裝的 zip 版不會自動更新。）Mac 版也一樣會自動更新。
 
 ## 開發
 

@@ -12,7 +12,8 @@
     "dist:zip": "electron-builder --win zip --x64",
     "release": "electron-builder --win --x64 --publish never",
     "dist:mac": "electron-builder --mac --universal",
-    "release:mac": "electron-builder --mac --universal --publish never"
+    "release:mac": "electron-builder --mac --universal --publish never",
+    "release:mac:adhoc": "electron-builder --mac --universal --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.extraMetadata.macAdhoc=true"
   },
   "build": {
     "appId": "xyz.548754321.kroom",
@@ -67,8 +68,10 @@
       "icon": "icon.png",
       "category": "public.app-category.music",
       "artifactName": "KRoom-mac.${ext}",
-      "identity": "-",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
       "minimumSystemVersion": "12.0",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "K ROOM 用麥克風讓你在包廂裡唱歌、和朋友說話。"

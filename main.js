@@ -6,7 +6,7 @@
 // The server address: --url=https://… > env KROOM_URL > <userData>/config.json {"url": "…"} > DEFAULT_URL (the main site)
 //   (userData: %APPDATA%/K ROOM on Windows, ~/Library/Application Support/K ROOM on a Mac)
 // On a Mac (MAC): a menu bar (⌘C ⌘V ⌘Q work), ⌘ instead of Ctrl, kroom:// links arrive by 'open-url', the system asks once for the microphone,
-// and the app is not signed by Apple, so it cannot replace itself: a new version is offered as a download instead.
+// and updates install themselves like on Windows — except a build not signed with the Developer ID (package.json macAdhoc), which only offers the download.
 const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen, systemPreferences } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
@@ -375,7 +375,8 @@ function createWindow() {
 
 /* ---- updates: the installed app (KRoom-Setup.exe) checks the GitHub releases (package.json build.publish) at start and every 4 hours, downloads a
    newer version in the background and installs it when the app closes — or right away, if the player says so. The zip version does not update.
-   A Mac: an app not signed by Apple cannot install its own update, so a newer version (latest-mac.yml) is offered as a download — once per version. ---- */
+   A Mac: the same, from latest-mac.yml (the zip) — the app is signed with the Developer ID and notarized. A build without it (release:mac:adhoc,
+   package.json macAdhoc) cannot install its own update: a newer version is offered as a download instead, once per version. ---- */
 /** before an update restart: the page's rejoin record (sessionStorage, gone after a restart) is kept in localStorage; preload.js puts it back */
 async function keepRoom() {
   if (!win || !isApp(win.webContents.getURL())) return;
@@ -391,7 +392,7 @@ function updates() {
   // 🧪 an admin can switch this install to betas too (the tablet's App 測試版: config.json betaUpdates)
   autoUpdater.allowPrerelease = app.getVersion().includes('-') || !!readJson(configFile()).betaUpdates;
   autoUpdater.on('error', (e) => console.warn('update', e?.message || e)); // (offline, GitHub busy, the zip version…: try again next time)
-  if (MAC) {
+  if (MAC && require('./package.json').macAdhoc) {
     autoUpdater.autoDownload = false; autoUpdater.autoInstallOnAppQuit = false;
     const told = new Set();
     autoUpdater.on('update-available', async (info) => {

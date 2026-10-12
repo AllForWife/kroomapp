@@ -1,4 +1,4 @@
-# Push a tag like v1.0.1 → GitHub builds the Windows installer and the Mac app and attaches them to one Release.
+# Push a tag like v1.0.1 → GitHub builds the Windows installer and the Mac app (signed + notarized: see the mac job) and attaches them to one Release.
 # latest.yml / latest-mac.yml + the .blockmaps are what installed apps check for updates (electron-updater). The newest ones are always at
 # https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-Setup.exe and …/KRoom-mac.dmg
 name: release
@@ -39,10 +39,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node node_modules/electron/install.js
-      # one app for Apple Silicon and Intel (universal), signed ad hoc (no Apple Developer ID: not notarized)
-      - run: npm run release:mac
+      # one app for Apple Silicon and Intel (universal), signed with the Developer ID and notarized by Apple (it then updates itself). Repository secrets:
+      #   CSC_LINK (the Developer ID Application certificate + key, .p12, base64), CSC_KEY_PASSWORD (its password),
+      #   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD (appleid.apple.com → 登入與安全性 → App 專用密碼), APPLE_TEAM_ID
+      # Without CSC_LINK: signed ad hoc only (Gatekeeper blocks the first start; it offers updates as a download)
+      - name: Build the Mac app
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ] || { echo "::error::CSC_LINK is set but APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are missing: the app would not be notarized"; exit 1; }
+            npm run release:mac
+            codesign --verify --deep --strict "dist/mac-universal/K ROOM.app"
+            spctl --assess --type execute -vv "dist/mac-universal/K ROOM.app" # (signed with the Developer ID and notarized: Gatekeeper lets it start)
+          else
+            echo "::warning::no CSC_LINK secret: the Mac app is signed ad hoc only (not notarized)"
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            CSC_IDENTITY_AUTO_DISCOVERY=false npm run release:mac:adhoc
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: mac
@@ -76,4 +94,4 @@ jobs:
             --title "K ROOM $GITHUB_REF_NAME" \
             --notes "${NOTE}**Windows**：下載 **KRoom-Setup.exe** 安裝（一般使用者帳號就能安裝）；或下載 zip 解壓後執行「K ROOM.exe」。第一次執行 Windows 可能顯示 SmartScreen 警告：按「其他資訊 → 仍要執行」。
 
-          **Mac**（Apple 晶片與 Intel 都能用，macOS 12 以上）：下載 **KRoom-mac.dmg**，打開後把 K ROOM 拖到「應用程式」。App 沒有 Apple 簽章：第一次打開會被擋下，到「系統設定 → 隱私權與安全性」按「強制打開」（或在 Finder 對 K ROOM 按右鍵 →「打開」）。"
+          **Mac**（Apple 晶片與 Intel 都能用，macOS 12 以上）：下載 **KRoom-mac.dmg**，打開後把 K ROOM 拖到「應用程式」。"
