@@ -1,10 +1,13 @@
-// K ROOM for Windows: the website in its own Chromium window. What it changes against a browser tab:
+// K ROOM for Windows and macOS: the website in its own Chromium window. What it changes against a browser tab:
 //  - sound plays at once (no 「點一下開啟聲音」: the autoplay gate is off)
 //  - nothing is slowed down in the background (timers, rendering, a minimised / covered window) — the song's drift correction and the voices keep time
 //  - the dedicated GPU is preferred, and the GPU is not blocklisted for the site after a GPU crash (fewer 「無法啟動 3D」)
 //  - the microphone is allowed for the K ROOM site only; links to other sites open in the normal browser
-// The server address: --url=https://… > env KROOM_URL > %APPDATA%/K ROOM/config.json {"url": "…"} > DEFAULT_URL (the main site)
-const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
+// The server address: --url=https://… > env KROOM_URL > <userData>/config.json {"url": "…"} > DEFAULT_URL (the main site)
+//   (userData: %APPDATA%/K ROOM on Windows, ~/Library/Application Support/K ROOM on a Mac)
+// On a Mac (MAC): a menu bar (⌘C ⌘V ⌘Q work), ⌘ instead of Ctrl, kroom:// links arrive by 'open-url', the system asks once for the microphone,
+// and the app is not signed by Apple, so it cannot replace itself: a new version is offered as a download instead.
+const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen, systemPreferences } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -21,7 +24,8 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('force_high_performance_gpu');
 app.disableDomainBlockingFor3DAPIs();
-app.setAppUserModelId('xyz.548754321.kroom');
+const MAC = process.platform === 'darwin';
+if (!MAC) app.setAppUserModelId('xyz.548754321.kroom');
 
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
 const writeJson = (f, o) => { try { fs.writeFileSync(f, JSON.stringify(o, null, 2)); } catch { /* read-only profile: not remembered */ } };
@@ -53,7 +57,7 @@ if (!firstInstance) app.quit();
 let win = null;
 
 /* ---- 用瀏覽器登入: the page asks (preload.js) → the normal browser opens <site>/?applogin=<state> → signed in there, one click makes a one-time code
-   (server/accounts.mjs) and opens kroom://login?code=…&state=… → Windows starts this app again with that link (second-instance) → the window opens
+   (server/accounts.mjs) and opens kroom://login?code=…&state=… → Windows starts this app again with that link (second-instance; a Mac: open-url) → the window opens
    <site>/api/auth/app/claim?code=…&state=… and gets its own session. Only the state this app just made is accepted, so a kroom:// link from
    anywhere else does nothing.
    The admin login (Ctrl+Shift+A) goes the same way: <site>/admin/applogin?state=… (server/admin.mjs) → kroom://admin?… → <site>/admin/appclaim. ---- */
@@ -116,6 +120,9 @@ function handoff(kind) {
   return true;
 }
 app.on('second-instance', (_e, argv) => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } deepLink(argv); });
+// a Mac hands kroom:// links to the running app ('open-url', not a second start); one that started the app comes before the window: kept until it is up
+let launchLink = '';
+app.on('open-url', (e, url) => { e.preventDefault(); if (!win) { launchLink = url; return; } if (win.isMinimized()) win.restore(); win.focus(); deepLink([url]); });
 ipcMain.handle('login-with-browser', (e) => originOf(e.senderFrame?.url || '') === ORIGIN && handoff('login'));
 // the page's ⚙ 設定 (src/ui/appsettings.ts): the app-level display switch, and a restart that comes back into the same room
 const fromSite = (e) => originOf(e.senderFrame?.url || '') === ORIGIN;
@@ -149,14 +156,22 @@ const toId = (src) => { const h = crypto.createHash('sha256').update('kroom-devi
 let device = '';
 const hwCached = (() => { const h = readJson(configFile()).hwId; return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(h || '')) ? String(h) : ''; })();
 if (hwCached) device = hwCached;
-const deviceRead = new Promise((resolve) => {
+// A Mac: the IOPlatformUUID (the 硬體 UUID in 系統資訊), else the serial number.
+const readHardware = (done) => {
+  if (MAC) return void require('child_process').execFile('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { timeout: 8000 }, (_err, out) => {
+    const get = (k) => new RegExp(`"${k}"\\s*=\\s*"([^"]*)"`).exec(String(out || ''))?.[1] || '';
+    done(`uuid=${get('IOPlatformUUID')}\nboard=${get('IOPlatformSerialNumber')}`);
+  });
   const PS = "$ErrorActionPreference='SilentlyContinue'; 'uuid=' + (Get-CimInstance Win32_ComputerSystemProduct).UUID; 'board=' + (Get-CimInstance Win32_BaseBoard).SerialNumber; 'bios=' + (Get-CimInstance Win32_BIOS).SerialNumber";
-  require('child_process').execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS], { windowsHide: true, timeout: 8000 }, (_err, out) => {
+  require('child_process').execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', PS], { windowsHide: true, timeout: 8000 }, (_err, out) => done(out));
+};
+const deviceRead = new Promise((resolve) => {
+  readHardware((out) => {
     const v = {}; for (const l of String(out || '').split(/\r?\n/)) { const m = /^(uuid|board|bios)=(.*)$/.exec(l.trim()); if (m) v[m[1]] = m[2].trim(); }
     const kind = ['uuid', 'board', 'bios'].find((k) => v[k] && !JUNK.test(v[k]) && !/^(.)\1+$/.test(v[k].replace(/-/g, '')));
     let id = '';
     if (kind) id = toId(`${kind}:${v[kind].toLowerCase()}`);
-    else {
+    else if (!MAC) {
       try { const g = /MachineGuid\s+REG_SZ\s+([0-9a-f-]{20,})/i.exec(require('child_process').execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], { encoding: 'utf8', windowsHide: true, timeout: 3000 }))?.[1]; if (g) id = toId(g.toLowerCase()); } catch { /* no access */ }
     }
     if (id) { if (id !== hwCached) writeJson(configFile(), { ...readJson(configFile()), hwId: id }); }
@@ -272,7 +287,12 @@ function permissions(ses) {
     if (perm === 'media') return !(media || []).includes('video');
     return perm === 'pointerLock' || perm === 'clipboard-sanitized-write' || perm === 'keyboardLock' || perm === 'speaker-selection';
   };
-  ses.setPermissionRequestHandler((wc, perm, cb, d) => cb(ok(perm, d.requestingUrl || wc.getURL(), d.mediaTypes)));
+  ses.setPermissionRequestHandler((wc, perm, cb, d) => {
+    const yes = ok(perm, d.requestingUrl || wc.getURL(), d.mediaTypes);
+    // a Mac also asks the player once (系統設定 → 隱私權與安全性 → 麥克風); turned off there, the page hears nothing and is told no
+    if (yes && perm === 'media' && MAC) return void systemPreferences.askForMediaAccess('microphone').then(cb, () => cb(false));
+    cb(yes);
+  });
   // (the check also decides whether the page may see the microphones' names and ids — without it 使用的麥克風 listed nothing; the origin may come
   //  with a trailing slash, so it is compared as an origin)
   ses.setPermissionCheckHandler((wc, perm, origin, d) => {
@@ -302,15 +322,18 @@ function createWindow() {
   win.on('close', () => { const b = win.getNormalBounds(); writeJson(stateFile(), { ...b, maximized: win.isMaximized() }); });
   win.on('closed', () => { win = null; });
 
+  // (a Mac: ⌘ for Ctrl; ⌥⌘I by i.code — with ⌥ held, i.key is another letter)
   win.webContents.on('before-input-event', (e, i) => {
     if (i.type !== 'keyDown') return;
+    const mod = MAC ? i.meta : i.control;
     if (i.key === 'F11') { e.preventDefault(); win.setFullScreen(!win.isFullScreen()); }
-    else if (i.key === 'F5' || (i.control && i.key.toLowerCase() === 'r' && i.shift)) { e.preventDefault(); win.webContents.reloadIgnoringCache(); }
-    else if (i.key === 'F12' || (i.control && i.shift && i.key.toLowerCase() === 'i')) { e.preventDefault(); win.webContents.toggleDevTools(); }
-    // Ctrl+Shift+A = admin login through the normal browser (logged in there as an admin → one click there); no address bar: Alt+Home = the game, Alt+← = back
-    else if (i.control && i.shift && i.key.toLowerCase() === 'a') { e.preventDefault(); handoff('admin'); }
-    else if (i.alt && i.key === 'Home') { e.preventDefault(); void win.loadURL(ORIGIN + '/'); }
-    else if (i.alt && i.key === 'ArrowLeft' && win.webContents.navigationHistory.canGoBack()) { e.preventDefault(); win.webContents.navigationHistory.goBack(); }
+    else if (i.key === 'F5' || (mod && i.key.toLowerCase() === 'r' && (i.shift || MAC))) { e.preventDefault(); win.webContents.reloadIgnoringCache(); }
+    else if (i.key === 'F12' || (MAC ? i.meta && i.alt && i.code === 'KeyI' : i.control && i.shift && i.key.toLowerCase() === 'i')) { e.preventDefault(); win.webContents.toggleDevTools(); }
+    // Ctrl+Shift+A (⌘⇧A) = admin login through the normal browser (logged in there as an admin → one click there);
+    // no address bar: Alt+Home (⌘⇧H) = the game, Alt+← (⌘[; not ⌘←: that is the start of the line while typing) = back
+    else if (mod && i.shift && i.key.toLowerCase() === 'a') { e.preventDefault(); handoff('admin'); }
+    else if (MAC ? i.meta && i.shift && i.key.toLowerCase() === 'h' : i.alt && i.key === 'Home') { e.preventDefault(); void win.loadURL(ORIGIN + '/'); }
+    else if ((MAC ? i.meta && i.code === 'BracketLeft' : i.alt && i.key === 'ArrowLeft') && win.webContents.navigationHistory.canGoBack()) { e.preventDefault(); win.webContents.navigationHistory.goBack(); }
   });
   win.webContents.on('did-navigate', () => stayAwake(false)); // (a new page asks again once its song plays)
   win.webContents.on('did-frame-finish-load', (_e, isMain) => { if (!isMain) { applyEmbedVolume(); if (embedKey) void applyEmbedKey(); } }); // (a player that just (re)loaded gets the volume and the key) // (a Bilibili player that just (re)loaded gets the volume)
@@ -346,11 +369,13 @@ function createWindow() {
   });
   void win.loadURL(START);
   // started by a kroom:// link (the app was not running: 用 App 開啟 on the website): it is handled once the first page is up
-  if (process.argv.some((a) => /^kroom:\/\//i.test(a))) { const argv = process.argv; win.webContents.once('did-finish-load', () => setTimeout(() => deepLink(argv), 300)); }
+  const argv = launchLink ? [launchLink] : process.argv; launchLink = '';
+  if (argv.some((a) => /^kroom:\/\//i.test(a))) win.webContents.once('did-finish-load', () => setTimeout(() => deepLink(argv), 300));
 }
 
 /* ---- updates: the installed app (KRoom-Setup.exe) checks the GitHub releases (package.json build.publish) at start and every 4 hours, downloads a
-   newer version in the background and installs it when the app closes — or right away, if the player says so. The zip version does not update. ---- */
+   newer version in the background and installs it when the app closes — or right away, if the player says so. The zip version does not update.
+   A Mac: an app not signed by Apple cannot install its own update, so a newer version (latest-mac.yml) is offered as a download — once per version. ---- */
 /** before an update restart: the page's rejoin record (sessionStorage, gone after a restart) is kept in localStorage; preload.js puts it back */
 async function keepRoom() {
   if (!win || !isApp(win.webContents.getURL())) return;
@@ -366,6 +391,15 @@ function updates() {
   // 🧪 an admin can switch this install to betas too (the tablet's App 測試版: config.json betaUpdates)
   autoUpdater.allowPrerelease = app.getVersion().includes('-') || !!readJson(configFile()).betaUpdates;
   autoUpdater.on('error', (e) => console.warn('update', e?.message || e)); // (offline, GitHub busy, the zip version…: try again next time)
+  if (MAC) {
+    autoUpdater.autoDownload = false; autoUpdater.autoInstallOnAppQuit = false;
+    const told = new Set();
+    autoUpdater.on('update-available', async (info) => {
+      if (told.has(info.version)) return; told.add(info.version);
+      const r = await dialog.showMessageBox(win || undefined, { type: 'info', title: 'K ROOM', message: `K ROOM ${info.version} 可以下載了`, detail: '下載新的 KRoom-mac.dmg，打開後把 K ROOM 拖到「應用程式」取代舊的。', buttons: ['下載', '稍後'], defaultId: 0, cancelId: 1 });
+      if (r.response === 0) openOutside(`https://github.com/AllForWife/kroomapp/releases/tag/v${info.version}`);
+    });
+  }
   autoUpdater.on('update-downloaded', async (info) => {
     const r = await dialog.showMessageBox(win || undefined, { type: 'info', title: 'K ROOM', message: `新版本 ${info.version} 已經下載好了`, detail: '現在重新啟動就會更新；選「稍後」的話，下次關閉 App 時自動更新。', buttons: ['現在重新啟動', '稍後'], defaultId: 0, cancelId: 1 });
     if (r.response === 0) { await keepRoom(); autoUpdater.quitAndInstall(true, true); } // (silent install, then the new version starts by itself)
@@ -378,7 +412,8 @@ app.on('web-contents-created', (_e, wc) => guard(wc));
 app.whenReady().then(async () => {
   if (!firstInstance) return;
   await Promise.race([deviceReady, new Promise((r) => setTimeout(r, 9000))]); // (the device id is read while Electron starts; the first page needs it)
-  Menu.setApplicationMenu(null);
+  // Windows: no menu bar. A Mac always has one, and without it ⌘C ⌘V ⌘Q ⌘H ⌘W do nothing
+  Menu.setApplicationMenu(MAC ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { label: '顯示', submenu: [{ role: 'togglefullscreen', label: '全螢幕' }] }, { role: 'windowMenu' }]) : null);
   permissions(session.defaultSession);
   createWindow();
   updates();

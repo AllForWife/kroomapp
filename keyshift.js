@@ -6,8 +6,10 @@
 // keyJs(n) is self-contained (it runs inside the frame); tests/keyshift-unit.mjs runs the same code in a plain page.
 
 const FFT = 2048, OSAMP = 4, BUF = 2048;
-/** how late the shifted sound is (samples): the FIFO (FFT − step) + one ScriptProcessor buffer */
-const LATENCY = FFT - FFT / OSAMP + BUF;
+/** how late the shifted sound is (samples): the FIFO (FFT − step) + TWO ScriptProcessor buffers — Chromium double-buffers a ScriptProcessor (one
+ *  buffer filled while the last one plays). Counting one, the music came out ~50 ms behind the room: measured in the audio graph 112–134 ms (mean
+ *  ~124), against 75 assumed; this is 117 ms */
+const LATENCY = FFT - FFT / OSAMP + 2 * BUF;
 
 const keyJs = (semis) => `(() => {
   const want = ${JSON.stringify(Math.max(-12, Math.min(12, Math.round(+semis || 0))))};
@@ -72,8 +74,9 @@ const keyJs = (semis) => `(() => {
   if (el && el !== K.el && (want !== 0 || K.el)) {
     try {
       // always 48 kHz (Chromium resamples to the sound card): at the card's own rate — 96 / 192 kHz on many PCs — the 2048-point FFT was only 11 ms
-      // long and the shifted key came out wrong (−3 Key: 359 Hz for 370), and it cost 4× the work
-      const ctx = K.ctx ||= new AudioContext({ latencyHint: 'playback', sampleRate: 48000 });
+      // long and the shifted key came out wrong (−3 Key: 359 Hz for 370), and it cost 4× the work. 'interactive': the smallest output buffer
+      // (10 ms, 'playback' 20 ms) — once wired the video's sound stays in Web Audio even at 原調, and should be no later than the video's own output
+      const ctx = K.ctx ||= new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
       void ctx.resume();
       if (ctx.state !== 'running') { K.pending = true; } // (sound would stop: the element is left alone until the context runs — next call)
       else {

@@ -1,5 +1,6 @@
-# Push a tag like v1.0.1 → GitHub builds the Windows installer and attaches it to a Release.
-# latest.yml + the .blockmap are what installed apps check for updates (electron-updater). The newest one is always at https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-Setup.exe
+# Push a tag like v1.0.1 → GitHub builds the Windows installer and the Mac app and attaches them to one Release.
+# latest.yml / latest-mac.yml + the .blockmaps are what installed apps check for updates (electron-updater). The newest ones are always at
+# https://github.com/AllForWife/kroomapp/releases/latest/download/KRoom-Setup.exe and …/KRoom-mac.dmg
 name: release
 on:
   push:
@@ -19,16 +20,60 @@ jobs:
       - run: npm ci
       - run: node node_modules/electron/install.js # (newer npm may skip electron's own download script)
       - run: npm run release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          if-no-files-found: error
+          path: |
+            dist/KRoom-Setup.exe
+            dist/KRoom-Setup.exe.blockmap
+            dist/latest.yml
+            dist/KRoom-win-x64.zip
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      # one app for Apple Silicon and Intel (universal), signed ad hoc (no Apple Developer ID: not notarized)
+      - run: npm run release:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          if-no-files-found: error
+          path: |
+            dist/KRoom-mac.dmg
+            dist/KRoom-mac.dmg.blockmap
+            dist/KRoom-mac.zip
+            dist/KRoom-mac.zip.blockmap
+            dist/latest-mac.yml
+  publish:
+    needs: [windows, mac]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         # a tag with a dash (v1.0.4-beta.1) is a beta: published as a pre-release, which installed normal versions never update to
         # (a beta install follows newer betas and normal releases: main.js allowPrerelease)
         run: |
           PRE=(); NOTE=""
           case "$GITHUB_REF_NAME" in *-*) PRE=(--prerelease); NOTE="🧪 測試版：只給測試用，已安裝的一般版本不會自動更新到這裡。 " ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/KRoom-Setup.exe dist/KRoom-Setup.exe.blockmap dist/latest.yml dist/KRoom-win-x64.zip "${PRE[@]}" \
-            --title "K ROOM for Windows $GITHUB_REF_NAME" \
-            --notes "${NOTE}下載 **KRoom-Setup.exe** 安裝（一般使用者帳號就能安裝）；或下載 zip 解壓後執行「K ROOM.exe」。第一次執行 Windows 可能顯示 SmartScreen 警告：按「其他資訊 → 仍要執行」。"
+          gh release create "$GITHUB_REF_NAME" dist/KRoom-Setup.exe dist/KRoom-Setup.exe.blockmap dist/latest.yml dist/KRoom-win-x64.zip \
+            dist/KRoom-mac.dmg dist/KRoom-mac.dmg.blockmap dist/KRoom-mac.zip dist/KRoom-mac.zip.blockmap dist/latest-mac.yml "${PRE[@]}" \
+            --title "K ROOM $GITHUB_REF_NAME" \
+            --notes "${NOTE}**Windows**：下載 **KRoom-Setup.exe** 安裝（一般使用者帳號就能安裝）；或下載 zip 解壓後執行「K ROOM.exe」。第一次執行 Windows 可能顯示 SmartScreen 警告：按「其他資訊 → 仍要執行」。
+
+          **Mac**（Apple 晶片與 Intel 都能用，macOS 12 以上）：下載 **KRoom-mac.dmg**，打開後把 K ROOM 拖到「應用程式」。App 沒有 Apple 簽章：第一次打開會被擋下，到「系統設定 → 隱私權與安全性」按「強制打開」（或在 Finder 對 K ROOM 按右鍵 →「打開」）。"

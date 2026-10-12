@@ -1,8 +1,8 @@
 {
   "name": "kroom-desktop",
   "productName": "K ROOM",
-  "version": "1.0.9-beta.1",
-  "description": "K ROOM for Windows: the website in its own window, without the browser's autoplay gate and background throttling",
+  "version": "1.0.9-beta.2",
+  "description": "K ROOM for Windows and macOS: the website in its own window, without the browser's autoplay gate and background throttling",
   "author": "K ROOM",
   "private": true,
   "main": "main.js",
@@ -10,7 +10,9 @@
     "start": "electron .",
     "dist": "electron-builder --win --x64",
     "dist:zip": "electron-builder --win zip --x64",
-    "release": "electron-builder --win --x64 --publish never"
+    "release": "electron-builder --win --x64 --publish never",
+    "dist:mac": "electron-builder --mac --universal",
+    "release:mac": "electron-builder --mac --universal --publish never"
   },
   "build": {
     "appId": "xyz.548754321.kroom",
@@ -60,6 +62,34 @@
     },
     "nsis": {
       "artifactName": "KRoom-Setup.${ext}"
+    },
+    "mac": {
+      "icon": "icon.png",
+      "category": "public.app-category.music",
+      "artifactName": "KRoom-mac.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "12.0",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "K ROOM 用麥克風讓你在包廂裡唱歌、和朋友說話。"
+      },
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "K ROOM"
     }
   },
   "devDependencies": {
