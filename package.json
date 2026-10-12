@@ -1,7 +1,7 @@
 {
   "name": "kroom-desktop",
   "productName": "K ROOM",
-  "version": "1.0.9-beta.2",
+  "version": "1.0.9-beta.3",
   "description": "K ROOM for Windows and macOS: the website in its own window, without the browser's autoplay gate and background throttling",
   "author": "K ROOM",
   "private": true,

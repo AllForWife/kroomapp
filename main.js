@@ -7,7 +7,7 @@
 //   (userData: %APPDATA%/K ROOM on Windows, ~/Library/Application Support/K ROOM on a Mac)
 // On a Mac (MAC): a menu bar (⌘C ⌘V ⌘Q work), ⌘ instead of Ctrl, kroom:// links arrive by 'open-url', the system asks once for the microphone,
 // and updates install themselves like on Windows — except a build not signed with the Developer ID (package.json macAdhoc), which only offers the download.
-const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen, systemPreferences } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
+const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen, systemPreferences, protocol } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -229,14 +229,22 @@ ipcMain.handle('embed-media', async (e, op, arg) => {
    video's sound into Web Audio and shifts its pitch (keyshift.js) — the page cannot reach into those frames, only the app can. Answers how late the
    shifted sound is (the page plays ahead by that). The page asks again every few seconds while a key is set (a player that builds its <video>
    late, a new video in the same frame); a frame that (re)loads gets it at once. ---- */
-const { keyJs } = require('./keyshift');
+const { keyJs, WORKLET } = require('./keyshift');
+// the shifter runs in an AudioWorklet (the audio thread: a busy player page no longer breaks the sound up) — its module is served by the app at
+// kroomfx://app/keyshift-worklet.js: the players' content security rules would refuse it from anywhere else, and this scheme bypasses them.
+// Only this one file is served (it is the app's own code, nothing a page could change)
+const FX_URL = 'kroomfx://app/keyshift-worklet.js';
+protocol.registerSchemesAsPrivileged([{ scheme: 'kroomfx', privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, corsEnabled: true } }]);
+app.whenReady().then(() => protocol.handle('kroomfx', (req) => (req.url === FX_URL
+  ? new Response(WORKLET, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'no-store' } })
+  : new Response('', { status: 404 }))));
 let embedKey = 0;
 const isYt = (u) => { try { const x = new URL(u); return /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(x.hostname) && x.pathname.startsWith('/embed/'); } catch { return false; } };
 async function applyEmbedKey() {
   if (!win) return null; let out = null;
   for (const f of win.webContents.mainFrame.framesInSubtree) {
     if (f === win.webContents.mainFrame || !(isBili(f.url) || isYt(f.url))) continue;
-    const r = await Promise.race([f.executeJavaScript(keyJs(embedKey)).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))]);
+    const r = await Promise.race([f.executeJavaScript(keyJs(embedKey, FX_URL)).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))]);
     if (r && (!out || (r.wired && !out.wired))) out = r;
   }
   return out;
