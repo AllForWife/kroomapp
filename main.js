@@ -329,6 +329,21 @@ function createWindow() {
   win.once('ready-to-show', () => win.show());
   win.on('close', () => { const b = win.getNormalBounds(); writeJson(stateFile(), { ...b, maximized: win.isMaximized() }); });
   win.on('closed', () => { win = null; });
+  // 🪟 minimised / hidden, in front or not: told to the page (preload onWindowState), which draws at most 2 frames a second minimised and 24
+  // behind another program — a K ROOM drawing 60+ frames nobody sees took the CPU its own voice needed on a busy PC. Its voice and network go on
+  const winState = () => { try { if (win && !win.isDestroyed()) win.webContents.send('win-state', { min: win.isMinimized() || !win.isVisible(), focus: win.isFocused() }); } catch { /* closing */ } };
+  for (const ev of ['minimize', 'restore', 'hide', 'show', 'blur', 'focus']) win.on(ev, winState);
+  win.webContents.on('did-finish-load', winState);
+  // Windows: the page (WebRTC decoding, Web Audio mixing) and Chromium's audio service one step above normal — on a PC with many programs open,
+  // the program in front got the CPU first and K ROOM's voice broke up behind it. Checked again now and then (a new page can get a new process)
+  if (process.platform === 'win32') {
+    const boost = () => {
+      if (!win || win.isDestroyed()) return; const os = require('os'), pids = new Set([win.webContents.getOSProcessId()]);
+      for (const m of app.getAppMetrics()) if (m.type === 'Utility' && /audio/i.test(m.serviceName || m.name || '')) pids.add(m.pid);
+      for (const pid of pids) { if (!pid || boosted.has(pid)) continue; try { os.setPriority(pid, os.constants.priority.PRIORITY_ABOVE_NORMAL); boosted.add(pid); } catch { /* not allowed: left as it is */ } }
+    };
+    const boosted = new Set(); win.webContents.on('did-finish-load', boost); const bt = setInterval(boost, 30_000); win.on('closed', () => clearInterval(bt));
+  }
 
   // (a Mac: ⌘ for Ctrl; ⌥⌘I by i.code — with ⌥ held, i.key is another letter)
   win.webContents.on('before-input-event', (e, i) => {

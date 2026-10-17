@@ -34,4 +34,7 @@ contextBridge.exposeInMainWorld('kroomApp', {
   embedPlay: () => ipcRenderer.invoke('embed-play'),
   /** 🌙 a song is playing: the screen does not go to sleep (or the screensaver) meanwhile */
   setAwake: (on) => ipcRenderer.invoke('set-awake', !!on),
-  setSite: (key) => ipcRenderer.invoke('set-site', String(key)),});
+  setSite: (key) => ipcRenderer.invoke('set-site', String(key)),
+  /** 🪟 the window minimised / in front or not (main.js 'win-state'): the page draws less meanwhile, so its voice keeps the CPU it needs */
+  onWindowState: (fn) => { if (typeof fn === 'function') ipcRenderer.on('win-state', (_e, st) => { try { fn({ min: !!st?.min, focus: !!st?.focus }); } catch { /* the page's problem */ } }); },
+});
