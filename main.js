@@ -14,7 +14,9 @@ const fs = require('fs');
 const path = require('path');
 
 /** the two K ROOM sites: players use the main one; an admin can switch the app to the testing one on the main menu (🌐 站台; config.json url) */
-const SITES = { main: 'https://ktv.548712345.xyz', test: 'https://ktv2.548754321.xyz' };
+const SITES = { main: 'https://play.kroom.tw', test: 'https://ktv2.548754321.xyz' };
+/** the main site's earlier address: a config.json url saved on it (🌐 站台) now opens the main site */
+const OLD_MAIN = 'https://ktv.548712345.xyz';
 const DEFAULT_URL = SITES.main;
 const siteOf = (origin) => Object.keys(SITES).find((k) => SITES[k] === origin) || '';
 
@@ -35,7 +37,7 @@ const stateFile = () => path.join(app.getPath('userData'), 'window.json');
 function startUrl() {
   const arg = process.argv.find((a) => a.startsWith('--url='));
   const raw = (arg && arg.slice(6)) || process.env.KROOM_URL || readJson(configFile()).url || DEFAULT_URL;
-  try { const u = new URL(raw); if (u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1') return u.href; } catch { /* not a URL */ }
+  try { const u = new URL(raw); if (u.origin === OLD_MAIN) return DEFAULT_URL; if (u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1') return u.href; } catch { /* not a URL */ }
   return DEFAULT_URL;
 }
 // ⚙ 設定 → 解除螢幕更新率限制: frames are no longer held to the screen's refresh (vsync); read at start, so a change needs a restart

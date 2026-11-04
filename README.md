@@ -1,6 +1,6 @@
 # K ROOM for Windows · macOS
 
-多人 KTV 包廂 **K ROOM** 的 Windows／Mac App：用自己的視窗開 K ROOM（https://ktv2.548754321.xyz）。
+多人 KTV 包廂 **K ROOM** 的 Windows／Mac App：用自己的視窗開 K ROOM（https://play.kroom.tw）。
 
 ## 下載
 
