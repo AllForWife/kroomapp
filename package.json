@@ -1,7 +1,7 @@
 {
   "name": "kroom-desktop",
   "productName": "K ROOM",
-  "version": "1.0.12",
+  "version": "1.0.13-beta.1",
   "description": "K ROOM for Windows and macOS: the website in its own window, without the browser's autoplay gate and background throttling",
   "author": "K ROOM",
   "private": true,
@@ -29,7 +29,8 @@
       {
         "name": "K ROOM",
         "schemes": [
-          "kroom"
+          "kroom",
+          "discord-1569425359034781747"
         ]
       }
     ],
@@ -41,6 +42,7 @@
       "preload.js",
       "keyshift.js",
       "offline.html",
+      "discord.js",
       "package.json"
     ],
     "win": {

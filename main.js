@@ -273,6 +273,43 @@ ipcMain.handle('embed-play', async (e) => {
 let awakeId = -1;
 const stayAwake = (on) => { if (on && awakeId < 0) awakeId = powerSaveBlocker.start('prevent-display-sleep'); else if (!on && awakeId >= 0) { powerSaveBlocker.stop(awakeId); awakeId = -1; } else return; if (process.env.KROOM_TEST_LOG) console.log(`AWAKE ${on}`); }; // (tests: logged)
 ipcMain.handle('set-awake', (e, on) => { if (!fromSite(e)) return false; stayAwake(!!on); return true; });
+
+/* ---- 🎮 Discord 狀態 (desktop/discord.js): the page (src/ui/discord.ts) says what to show; the app builds the activity itself, so the page can
+   never point a button anywhere but this site. Texts come from the admin page (⚙️ 設定 ▸ Discord 狀態), the switches from 畫面設定 ▸ Discord.
+   加入方式: 'button' — a 「加入房間」 button anyone can press (the room's invite link; in 👻 隱身模式 / a private room only the site's front page);
+   'invite' — Discord's own invites (party + join secret = the room; not in 👻 隱身模式; a private room's head count is left out). Discord refuses both together
+   ("secrets cannot currently be sent with buttons"). Cleared when the page goes (navigation, crash, closed window): no room left on the profile. ---- */
+const DISCORD_ID = '1569425359034781747'; // (the Discord application 「K ROOM」: its name is the 「正在玩」 line)
+const ROOM_RE = /^[\w一-鿿-]{1,20}$/; // (the room names the entry screen allows: src/ui/hud.ts)
+let discord = null, joinUrl = '';
+/** a Discord invite accepted on this computer: into that room (the page's ?room= link opens 「進入房間」 with the code filled in) */
+function discordJoin(secret) {
+  if (!ROOM_RE.test(secret)) return;
+  const go = `${ORIGIN}/?room=${encodeURIComponent(secret)}`;
+  if (!win) { joinUrl = go; return; } // (Discord started the app for it: the window opens there)
+  if (win.isMinimized()) win.restore(); win.focus(); void win.loadURL(go);
+}
+const txt = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, n);
+function presenceActivity(p) {
+  if (!p || typeof p !== 'object') return null;
+  const a = { type: 0, assets: { large_image: `${ORIGIN}/icons/icon-512.png`, large_text: 'K ROOM' } };
+  const details = txt(p.details, 128), state = txt(p.state, 128), room = typeof p.room === 'string' && ROOM_RE.test(p.room) ? p.room : '';
+  if (details.length >= 2) a.details = details;
+  if (state.length >= 2) a.state = state;
+  const t = Number(p.start); if (Number.isFinite(t) && t > 1e12 && t < Date.now() + 60_000) a.timestamps = { start: Math.floor(t) };
+  if (p.join === 'button') {
+    const label = txt(p.label, 32);
+    if (label) a.buttons = [{ label, url: room && !p.hidden ? `${ORIGIN}/?room=${encodeURIComponent(room)}` : `${ORIGIN}/` }];
+  } else if (p.join === 'invite' && room && !p.ghost) {
+    const n = Math.max(1, Math.floor(Number(p.people) || 1)), max = Math.max(n, Math.floor(Number(p.max) || 0));
+    a.party = { id: crypto.createHash('sha256').update(`${ORIGIN} ${room}`).digest('hex').slice(0, 32), ...(max > 1 && !p.hidden ? { size: [n, max] } : {}) };
+    a.secrets = { join: room };
+  }
+  return a;
+}
+/** only the main window's own page (not a same-site popup) */
+const fromMain = (e) => fromSite(e) && !!win && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame;
+ipcMain.handle('set-presence', (e, p) => { if (!fromMain(e) || !discord) return false; discord.set(presenceActivity(p)); return true; });
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
 ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
 ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
@@ -330,7 +367,10 @@ function createWindow() {
   if (st.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());
   win.on('close', () => { const b = win.getNormalBounds(); writeJson(stateFile(), { ...b, maximized: win.isMaximized() }); });
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => { win = null; discord?.set(null); });
+  // 🎮 a new page (leaving the room, F5, an invite…) or a crashed one: the old room comes off the Discord profile until the new page says what to show
+  win.webContents.on('did-start-navigation', (e, _url, inPlace, isMain) => { if ((e.isMainFrame ?? isMain) && !(e.isSameDocument ?? inPlace)) discord?.set(null); });
+  win.webContents.on('render-process-gone', () => discord?.set(null));
   // 🪟 minimised / hidden, in front or not: told to the page (preload onWindowState), which draws at most 2 frames a second minimised and 24
   // behind another program — a K ROOM drawing 60+ frames nobody sees took the CPU its own voice needed on a busy PC. Its voice and network go on
   const winState = () => { try { if (win && !win.isDestroyed()) win.webContents.send('win-state', { min: win.isMinimized() || !win.isVisible(), focus: win.isFocused() }); } catch { /* closing */ } };
@@ -392,7 +432,7 @@ function createWindow() {
     asking = false;
     if (r.response === 1 && win && !win.isDestroyed()) win.webContents.forcefullyCrashRenderer(); // (render-process-gone loads it again)
   });
-  void win.loadURL(START);
+  void win.loadURL(joinUrl || START); joinUrl = '';
   // started by a kroom:// link (the app was not running: 用 App 開啟 on the website): it is handled once the first page is up
   const argv = launchLink ? [launchLink] : process.argv; launchLink = '';
   if (argv.some((a) => /^kroom:\/\//i.test(a))) win.webContents.once('did-finish-load', () => setTimeout(() => deepLink(argv), 300));
@@ -441,6 +481,12 @@ app.whenReady().then(async () => {
   // Windows: no menu bar. A Mac always has one, and without it ⌘C ⌘V ⌘Q ⌘H ⌘W do nothing
   Menu.setApplicationMenu(MAC ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { label: '顯示', submenu: [{ role: 'togglefullscreen', label: '全螢幕' }] }, { role: 'windowMenu' }]) : null);
   permissions(session.defaultSession);
+  // 🎮 Discord: started before the window, so an invite that made Discord start the app is not missed (discordJoin keeps it for the window)
+  if (DISCORD_ID) {
+    const scheme = `discord-${DISCORD_ID}`; // (how Discord starts the app for an accepted invite)
+    if (app.isPackaged) app.setAsDefaultProtocolClient(scheme); else app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1] || '.')]);
+    discord = require('./discord').create(DISCORD_ID, discordJoin);
+  }
   createWindow();
   updates();
 });
