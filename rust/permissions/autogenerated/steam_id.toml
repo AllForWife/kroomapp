@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-steam-id"
+description = "Enables the steam_id command without any pre-configured scope."
+commands.allow = ["steam_id"]
+
+[[permission]]
+identifier = "deny-steam-id"
+description = "Denies the steam_id command without any pre-configured scope."
+commands.deny = ["steam_id"]

@@ -3,12 +3,15 @@
 //  - nothing is slowed down in the background (timers, rendering, a minimised / covered window) — the song's drift correction and the voices keep time
 //  - the dedicated GPU is preferred, and the GPU is not blocklisted for the site after a GPU crash (fewer 「無法啟動 3D」)
 //  - the microphone is allowed for the K ROOM site only; links to other sites open in the normal browser
-// The server address: --url=https://… > env KROOM_URL > <userData>/config.json {"url": "…"} > DEFAULT_URL (the main site)
+// The server address: env KROOM_START_URL (dev only) > --url=https://… > env KROOM_URL > <userData>/config.json {"url": "…"} > DEFAULT_URL (the main site)
 //   (userData: %APPDATA%/K ROOM on Windows, ~/Library/Application Support/K ROOM on a Mac)
 // On a Mac (MAC): a menu bar (⌘C ⌘V ⌘Q work), ⌘ instead of Ctrl, kroom:// links arrive by 'open-url', the system asks once for the microphone,
 // and updates install themselves like on Windows — except a build not signed with the Developer ID (package.json macAdhoc), which only offers the download.
 const { app, BrowserWindow, session, shell, Menu, ipcMain, dialog, powerSaveBlocker, screen, systemPreferences, protocol } = require('electron'); // (dialog: updates, and 用 App 開啟's 「用「名字」登入？」)
-const { autoUpdater } = require('electron-updater');
+// electron-updater is loaded only when an update check really runs (never in the Steam build, which does not even ship the package: steam/electron-builder.steam.json files "!node_modules/**")
+const autoUpdater = new Proxy({}, { get: (_t, k) => { const u = require('electron-updater').autoUpdater, v = u[k]; return typeof v === 'function' ? v.bind(u) : v; }, set: (_t, k, v) => { require('electron-updater').autoUpdater[k] = v; return true; } });
+const { STEAM, withStore, flag } = require('./buildflags'); // the Steam build (docs/STEAM-BUILD.md): no self-update (Steam updates), no site switch / beta switch, the page address carries ?store=1
+const steamworks = STEAM ? require('./steam-integration').init() : null; // (null: no steamworks.js installed / no Steam running — the game does not need Steam to run)
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -34,15 +37,21 @@ const writeJson = (f, o) => { try { fs.writeFileSync(f, JSON.stringify(o, null, 
 const configFile = () => path.join(app.getPath('userData'), 'config.json');
 const stateFile = () => path.join(app.getPath('userData'), 'window.json');
 
+/** the address may only be steered (--url= / KROOM_URL / KROOM_START_URL / config.json) by the normal desktop build, an unpackaged run (npm start, tests), or STEAM_BUILD_DEV=1;
+ *  the PACKAGED Steam build always opens the main site: a shortcut, an environment variable or a config file cannot point the shipped game at another server */
+const DEV_URL_OK = !STEAM || !app.isPackaged || flag(process.env.STEAM_BUILD_DEV);
 function startUrl() {
+  if (!DEV_URL_OK) return DEFAULT_URL;
   const arg = process.argv.find((a) => a.startsWith('--url='));
-  const raw = (arg && arg.slice(6)) || process.env.KROOM_URL || readJson(configFile()).url || DEFAULT_URL;
+  // KROOM_START_URL: development only (an unpackaged run or STEAM_BUILD_DEV=1; tests / desktop/steam/smoke.js point the app at a private server)
+  const dev = (!app.isPackaged || flag(process.env.STEAM_BUILD_DEV)) ? process.env.KROOM_START_URL : '';
+  const raw = dev || (arg && arg.slice(6)) || process.env.KROOM_URL || readJson(configFile()).url || DEFAULT_URL;
   try { const u = new URL(raw); if (u.origin === OLD_MAIN) return DEFAULT_URL; if (u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1') return u.href; } catch { /* not a URL */ }
   return DEFAULT_URL;
 }
 // ⚙ 設定 → 解除螢幕更新率限制: frames are no longer held to the screen's refresh (vsync); read at start, so a change needs a restart
 if (readJson(configFile()).unlockFps) { app.commandLine.appendSwitch('disable-frame-rate-limit'); app.commandLine.appendSwitch('disable-gpu-vsync'); }
-const START = startUrl();
+const START = STEAM ? withStore(startUrl()) : startUrl();
 const ORIGIN = new URL(START).origin;
 
 const originOf = (u) => { try { return new URL(u).origin; } catch { return ''; } };
@@ -52,7 +61,7 @@ const isGoogleAuth = (u) => { try { const h = new URL(u).hostname; return h === 
 const openOutside = (u) => { if (/^https?:\/\//i.test(u)) void shell.openExternal(u); };
 
 // Google refuses to sign in inside "embedded browsers" it recognises by the user agent: present the plain Chrome one (+ a marker the site can read)
-app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|kroom-desktop|K ?ROOM)\/\S+/gi, '') + ` KRoomDesktop/${app.getVersion()}`;
+app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|kroom-desktop|K ?ROOM)\/\S+/gi, '') + ` KRoomDesktop/${app.getVersion()}` + (STEAM ? ` KRoomSteam/${app.getVersion()}` : '');
 
 const firstInstance = app.requestSingleInstanceLock(); // a second start only brings the open window forward
 if (!firstInstance) app.quit();
@@ -125,22 +134,114 @@ app.on('second-instance', (_e, argv) => { if (win) { if (win.isMinimized()) win.
 // a Mac hands kroom:// links to the running app ('open-url', not a second start); one that started the app comes before the window: kept until it is up
 let launchLink = '';
 app.on('open-url', (e, url) => { e.preventDefault(); if (!win) { launchLink = url; return; } if (win.isMinimized()) win.restore(); win.focus(); deepLink([url]); });
+ipcMain.on('build-flags', (e) => { e.returnValue = { steam: STEAM, steamUser: !!steamworks }; }); // (preload.js: a Steam build does not offer the update beta / site switch)
+// 🎮 the Steam build: the Steam account for sign-in (a ticket the server checks with Steam) and for in-app purchases (the Steam ID); only the K ROOM site gets an answer
+ipcMain.handle('steam-ticket', async (e) => (STEAM && steamworks && originOf(e.senderFrame?.url || '') === ORIGIN ? await steamworks.ticket() : ''));
+ipcMain.handle('steam-id', (e) => (STEAM && steamworks && originOf(e.senderFrame?.url || '') === ORIGIN ? steamworks.steamId() : ''));
 ipcMain.handle('login-with-browser', (e) => originOf(e.senderFrame?.url || '') === ORIGIN && handoff('login'));
 // the page's ⚙ 設定 (src/ui/appsettings.ts): the app-level display switch, and a restart that comes back into the same room
 const fromSite = (e) => originOf(e.senderFrame?.url || '') === ORIGIN;
-ipcMain.handle('get-display', (e) => { if (!fromSite(e)) return null; const c = readJson(configFile()); return { unlockFps: !!c.unlockFps, betaUpdates: !!c.betaUpdates, version: app.getVersion() }; });
+ipcMain.handle('get-display', (e) => { if (!fromSite(e)) return null; const c = readJson(configFile()); return { unlockFps: !!c.unlockFps, betaUpdates: STEAM ? undefined : !!c.betaUpdates, version: app.getVersion() }; });
 // 🧪 App 測試版 (shown to admins only): this install also takes betas (GitHub pre-releases); turned on, it looks for one right away
 ipcMain.handle('set-beta', (e, on) => {
-  if (!fromSite(e)) return false;
+  if (!fromSite(e) || STEAM) return false;
   writeJson(configFile(), { ...readJson(configFile()), betaUpdates: !!on });
-  if (app.isPackaged && !process.env.KROOM_NO_UPDATE) { autoUpdater.allowPrerelease = app.getVersion().includes('-') || !!on; if (on) void autoUpdater.checkForUpdates().catch(() => {}); }
+  if (app.isPackaged && !STEAM && !process.env.KROOM_NO_UPDATE) { autoUpdater.allowPrerelease = app.getVersion().includes('-') || !!on; if (on) checkNow(); }
   return true;
 });
+/* ---- 🧪 App 測試版 → which app: this Electron one or the Rust one (desktop-rs/ in the main project, rust/ in kroomapp; released on the same repo as
+   vX.Y.Z-rust.N pre-releases). Switching to Rust happens without the player having to do anything, and they stay who they were:
+   - signed in: the page (signed in) makes a one-time sign-in code (/api/auth/app/code, 2 min, once) that the Rust app claims on its first page;
+   - the same device id, the same room, the same settings: handed over in the Rust app's own config.json (it reads them before its first page);
+   - installed silently (Windows: its installer with /S, then started; a Mac: the app bundle is replaced in place, then started) — this one quits.
+   (desktop-rs/src/main.rs reads the handoff, desktop-rs/src/config.rs takes this app's settings over.) ---- */
+const REPO = 'AllForWife/kroomapp';
+const RUST_ID = 'xyz.548754321.kroom'; // (the Rust app's identifier: its data folder name)
+const RUST_ASSET = MAC ? 'KRoom-rust-mac.app.tar.gz' : 'KRoom-rust-Setup.exe';
+/** the newest release whose tag passes want() and that carries this file → its download address, or '' */
+async function newestRelease(asset, want) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, { headers: { accept: 'application/vnd.github+json', 'user-agent': 'kroom-desktop' } });
+    if (!r.ok) return '';
+    for (const rel of await r.json()) if (!rel.draft && want(String(rel.tag_name || ''))) { const a = (rel.assets || []).find((x) => x.name === asset); if (a) return a.browser_download_url; }
+  } catch { /* offline */ }
+  return '';
+}
+/** what the Rust app needs to carry on as this one: a sign-in code (if signed in), the room, the device id — into its config.json */
+const onPage = () => !!win && !win.isDestroyed() && isApp(win.webContents.getURL());
+const pageValue = (js) => Promise.race([win.webContents.executeJavaScript(js), new Promise((r) => setTimeout(() => r(null), 5000))]).catch(() => null);
+/** is the page signed in to an account */
+const signedIn = async () => onPage() && (await pageValue(`fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json()).then((j) => !!(j && j.account)).catch(() => false)`)) === true;
+/** a one-time sign-in code (2 min, once) made by the signed-in page → { code, state } or null */
+async function mintCode() {
+  if (!onPage()) return null;
+  const state = crypto.randomBytes(24).toString('base64url');
+  const code = await pageValue(`fetch('/api/auth/app/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state: ${JSON.stringify(state)} }) }).then((r) => (r.ok ? r.json() : null)).then((j) => (j && j.code) || '').catch(() => '')`);
+  return code ? { code, state } : null;
+}
+async function rustHandoff() {
+  const dir = path.join(app.getPath('appData'), RUST_ID), file = path.join(dir, 'config.json');
+  const c = readJson(file);
+  if (siteOf(ORIGIN)) c.url = ORIGIN; // (the same site as here: the code only works on this one)
+  if (onPage()) {
+    const m = await mintCode(); // (made now, right before the Rust app starts: it lasts 2 minutes)
+    if (m) c.handoff = { ...m, origin: ORIGIN, at: Date.now() }; // (not signed in: nothing to hand over)
+    try { const rec = await win.webContents.executeJavaScript(`(() => { try { return sessionStorage.getItem('ktv.rejoin'); } catch { return null; } })()`); if (rec) c.rejoin = { rec, saved: Date.now() }; } catch { /* gone */ }
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(device)) c.hwId = device; // (the admin panel sees the same device)
+  fs.mkdirSync(dir, { recursive: true }); writeJson(file, c);
+}
+const run = (cmd, args, opts = {}) => new Promise((resolve) => { const p = require('child_process').spawn(cmd, args, { stdio: 'ignore', windowsHide: true, ...opts }); p.on('error', () => resolve(-1)); p.on('exit', (code) => resolve(code)); });
+/** download the Rust app, install it silently, hand over, start it and quit. { ok } / { ok: false, error } — one switch at a time */
+let switching = false;
+async function toRust() {
+  if (switching) return { ok: false, error: 'busy' };
+  switching = true;
+  const r = await toRustOnce().catch(() => ({ ok: false, error: 'start' }));
+  if (!r.ok) { switching = false; autoUpdater.autoInstallOnAppQuit = app.isPackaged && !STEAM && !(MAC && require('./package.json').macAdhoc); if (win && !win.isDestroyed()) win.show(); }
+  return r;
+}
+async function toRustOnce() {
+  // signed in, but no sign-in code can be made (offline, the server busy): this app stays — nobody is signed out by a switch
+  if ((await signedIn()) && !(await mintCode())) return { ok: false, error: 'signin' };
+  const url = await newestRelease(RUST_ASSET, (t) => /-rust\./.test(t));
+  if (!url) return { ok: false, error: 'no-release' };
+  let bytes;
+  try { const r = await fetch(url); if (!r.ok) return { ok: false, error: 'download' }; bytes = Buffer.from(await r.arrayBuffer()); } catch { return { ok: false, error: 'download' }; }
+  const tmp = fs.mkdtempSync(path.join(app.getPath('temp'), 'kroom-rust-')), file = path.join(tmp, RUST_ASSET);
+  fs.writeFileSync(file, bytes);
+  autoUpdater.autoInstallOnAppQuit = false; // (an Electron update installed on the way out would take the shortcut back)
+  if (MAC) {
+    // the bundle this app runs from (…/K ROOM.app) is replaced by the Rust one, as an update would (both are "K ROOM.app")
+    const bundle = path.resolve(app.getPath('exe'), '..', '..', '..'), fresh = path.join(tmp, 'K ROOM.app'), old = `${bundle}.electron-old`;
+    if (!bundle.endsWith('.app') || (await run('tar', ['-xzf', file, '-C', tmp])) !== 0 || !fs.existsSync(path.join(fresh, 'Contents', 'Info.plist'))) return { ok: false, error: 'unpack' };
+    try { fs.rmSync(old, { recursive: true, force: true }); fs.renameSync(bundle, old); } catch { return { ok: false, error: 'replace' }; }
+    if ((await run('ditto', [fresh, bundle])) !== 0) { try { fs.rmSync(bundle, { recursive: true, force: true }); fs.renameSync(old, bundle); } catch { /* left as it is */ } return { ok: false, error: 'replace' }; }
+    await rustHandoff();
+    require('child_process').spawn('/bin/sh', ['-c', `sleep 1; open -n "${bundle}"; sleep 20; rm -rf "${old}" "${tmp}"`], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => app.quit(), 300);
+    return { ok: true };
+  }
+  if (bytes.length < 1_000_000 || bytes[0] !== 0x4d || bytes[1] !== 0x5a) return { ok: false, error: 'download' }; // (an installer, not an error page)
+  // Windows: the Rust installer runs silently (/S) into the Rust app's folder (/D= must come last, unquoted); the window goes away meanwhile
+  const dest = path.join(process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local'), 'K ROOM');
+  if (win && !win.isDestroyed()) win.hide(); // (the page goes on running: it makes the sign-in code after the install)
+  const code = await run(file, ['/S', `/D=${dest}`], { argv0: `"${file}"`, windowsVerbatimArguments: true }); // (argv0 quoted: a user name with spaces)
+  const exe = path.join(dest, 'kroom.exe');
+  if (code !== 0 || !fs.existsSync(exe)) return { ok: false, error: 'install' };
+  await rustHandoff(); // (the Rust installer pointed the K ROOM shortcuts and kroom:// at the Rust app)
+  require('child_process').spawn(exe, [], { detached: true, stdio: 'ignore' }).unref();
+  setTimeout(() => app.quit(), 300);
+  return { ok: true };
+}
+ipcMain.handle('get-engine', (e) => (fromSite(e) && !STEAM ? { current: 'electron', engines: ['electron', 'rust'] } : null));
+ipcMain.handle('set-engine', async (e, which) => (fromSite(e) && !STEAM && which === 'rust' ? toRust().catch(() => ({ ok: false, error: 'start' })) : { ok: false }));
 ipcMain.handle('set-unlock-fps', (e, on) => { if (!fromSite(e)) return false; writeJson(configFile(), { ...readJson(configFile()), unlockFps: !!on }); return true; });
 ipcMain.handle('relaunch', async (e) => { if (!fromSite(e)) return; await keepRoom(); app.relaunch(); app.quit(); });
 /** 🌐 站台: the app moves to the other K ROOM site — saved in config.json, then a restart (everything here is per site: the cookies, the allowed origin).
  *  link: a kroom:// link to handle once the app is up on that site */
 function switchSite(origin, link = '') {
+  if (STEAM) return; // (the Steam build stays on its site)
   writeJson(configFile(), { ...readJson(configFile()), url: origin });
   const args = process.argv.slice(1).filter((a) => !/^kroom:\/\//i.test(a) && !a.startsWith('--url=')); // (a --url= from a shortcut would win over the choice)
   app.relaunch({ args: link ? [...args, link] : args }); app.quit();
@@ -184,6 +285,18 @@ const deviceRead = new Promise((resolve) => {
 });
 const deviceReady = hwCached ? Promise.resolve(hwCached) : deviceRead;
 ipcMain.on('device-id', (e) => { e.returnValue = fromSite(e) ? device || null : null; });
+/* ---- 🧪 back from the Rust app (its App 版本 switch: desktop-rs/src/engine.rs): it left in config.json a one-time sign-in code its signed-in page
+   made a moment ago (2 min, once) and the room it was in. The first page claims the code — the player stays signed in without being asked (it
+   came from this computer's own file, not from a link: a kroom://open link still asks) — and the room goes back to the page (preload.js). ---- */
+const engineHandoff = (() => {
+  const c = readJson(configFile()); if (!c.handoff && !c.rejoin) return { claim: '', rejoin: null };
+  const { handoff: h, rejoin: r } = c; delete c.handoff; delete c.rejoin; writeJson(configFile(), c);
+  const ok = (v) => typeof v === 'string' && /^[\w-]{20,200}$/.test(v);
+  const claim = h && ok(h.code) && ok(h.state) && h.origin === ORIGIN && Date.now() - Number(h.at) < 3 * 60_000 ? `${ORIGIN}/api/auth/app/claim?code=${h.code}&state=${h.state}` : '';
+  const rejoin = r && typeof r.rec === 'string' && r.rec.length <= 65536 && Date.now() - Number(r.saved) < 10 * 60_000 ? { rec: r.rec, saved: Number(r.saved) } : null;
+  return { claim, rejoin };
+})();
+ipcMain.on('kept-room', (e) => { e.returnValue = fromSite(e) && engineHandoff.rejoin ? engineHandoff.rejoin : null; engineHandoff.rejoin = null; });
 app.on('before-quit', () => { try { session.defaultSession.flushStorageData(); } catch { /* not ready */ } }); // (what the pages stored is on disk before the app goes)
 /* ---- 🔊 the Bilibili player's volume: the page cannot reach into Bilibili's frame (another site), and that player has no volume command — the 伴奏音量
    slider did nothing for a Bilibili song and players were sent to set Bilibili's own slider by hand (src/ui/bilivol.ts). The app can: the page says
@@ -285,7 +398,7 @@ let discord = null, joinUrl = '';
 /** a Discord invite accepted on this computer: into that room (the page's ?room= link opens 「進入房間」 with the code filled in) */
 function discordJoin(secret) {
   if (!ROOM_RE.test(secret)) return;
-  const go = `${ORIGIN}/?room=${encodeURIComponent(secret)}`;
+  const url = `${ORIGIN}/?room=${encodeURIComponent(secret)}`, go = STEAM ? withStore(url) : url;
   if (!win) { joinUrl = go; return; } // (Discord started the app for it: the window opens there)
   if (win.isMinimized()) win.restore(); win.focus(); void win.loadURL(go);
 }
@@ -311,8 +424,8 @@ function presenceActivity(p) {
 const fromMain = (e) => fromSite(e) && !!win && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame;
 ipcMain.handle('set-presence', (e, p) => { if (!fromMain(e) || !discord) return false; discord.set(presenceActivity(p)); return true; });
 // the main menu's 🌐 站台 (src/ui/hud.ts; the page shows it to admins only)
-ipcMain.handle('get-sites', (e) => (fromSite(e) ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
-ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
+ipcMain.handle('get-sites', (e) => (fromSite(e) && !STEAM ? { current: siteOf(ORIGIN) || 'custom', sites: SITES } : null));
+ipcMain.handle('set-site', (e, key) => { if (!fromSite(e) || STEAM || !SITES[key] || SITES[key] === ORIGIN) return false; switchSite(SITES[key]); return true; });
 function guard(wc) {
   wc.setWindowOpenHandler(({ url }) => {
     if (isGoogleAuth(url)) return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, autoHideMenuBar: true, parent: win || undefined } };
@@ -424,15 +537,9 @@ function createWindow() {
     }
     if (win && !win.isDestroyed()) win.webContents.reload();
   });
-  // the page stopped answering (a long freeze): ask, instead of a window that does nothing
-  let asking = false;
-  win.on('unresponsive', async () => {
-    if (asking || !win) return; asking = true;
-    const r = await dialog.showMessageBox(win, { type: 'warning', title: 'K ROOM', message: 'K ROOM 沒有回應', detail: '可以再等一下，或重新載入（會回到同一個房間）。', buttons: ['等待', '重新載入'], defaultId: 0, cancelId: 0, noLink: true });
-    asking = false;
-    if (r.response === 1 && win && !win.isDestroyed()) win.webContents.forcefullyCrashRenderer(); // (render-process-gone loads it again)
-  });
-  void win.loadURL(joinUrl || START); joinUrl = '';
+  // the page stopped answering: no "K ROOM 沒有回應" dialog (2026-11-14: a venue load / shader compile on a slow computer freezes the page for a while
+  // and then recovers; the dialog only scared players). A page that really died is still handled by 'render-process-gone' above.
+  void win.loadURL(engineHandoff.claim || joinUrl || START); joinUrl = ''; engineHandoff.claim = '';
   // started by a kroom:// link (the app was not running: 用 App 開啟 on the website): it is handled once the first page is up
   const argv = launchLink ? [launchLink] : process.argv; launchLink = '';
   if (argv.some((a) => /^kroom:\/\//i.test(a))) win.webContents.once('did-finish-load', () => setTimeout(() => deepLink(argv), 300));
@@ -450,6 +557,7 @@ async function keepRoom() {
   await new Promise((r) => setTimeout(r, 300));
 }
 function updates() {
+  if (STEAM) return; // Steam delivers the updates (depots): no GitHub check, no download, no restart prompt
   if (!app.isPackaged || process.env.KROOM_NO_UPDATE) return;
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
   // betas (1.0.4-beta.1) are GitHub pre-releases: a normal install only ever takes the newest normal release (GitHub's releases/latest); a beta
@@ -470,9 +578,20 @@ function updates() {
     const r = await dialog.showMessageBox(win || undefined, { type: 'info', title: 'K ROOM', message: `新版本 ${info.version} 已經下載好了`, detail: '現在重新啟動就會更新；選「稍後」的話，下次關閉 App 時自動更新。', buttons: ['現在重新啟動', '稍後'], defaultId: 0, cancelId: 1 });
     if (r.response === 0) { await keepRoom(); autoUpdater.quitAndInstall(true, true); } // (silent install, then the new version starts by itself)
   });
-  const check = () => void autoUpdater.checkForUpdates().catch(() => {});
-  check(); setInterval(check, 4 * 3600_000);
+  // the Rust app's releases (vX.Y.Z-rust.N pre-releases, no latest.yml) share this repo: with betas on, the GitHub provider would take the newest
+  // release of all — a Rust one — and find no latest.yml there. So a beta install is pointed at the newest Electron release that has one (a normal
+  // install only ever looks at releases/latest, a normal release: unaffected)
+  const feed = MAC ? 'latest-mac.yml' : 'latest.yml';
+  checkNow = async () => {
+    if (autoUpdater.allowPrerelease) {
+      const url = await newestRelease(feed, (t) => !/-rust\./.test(t));
+      if (url) autoUpdater.setFeedURL({ provider: 'generic', url: url.slice(0, url.lastIndexOf('/')) });
+    } else autoUpdater.setFeedURL({ provider: 'github', owner: 'AllForWife', repo: 'kroomapp' });
+    void autoUpdater.checkForUpdates().catch(() => {});
+  };
+  checkNow(); setInterval(checkNow, 4 * 3600_000);
 }
+let checkNow = () => {};
 
 app.on('web-contents-created', (_e, wc) => guard(wc));
 app.whenReady().then(async () => {

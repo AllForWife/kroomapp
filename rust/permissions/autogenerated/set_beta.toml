@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-beta"
+description = "Enables the set_beta command without any pre-configured scope."
+commands.allow = ["set_beta"]
+
+[[permission]]
+identifier = "deny-set-beta"
+description = "Denies the set_beta command without any pre-configured scope."
+commands.deny = ["set_beta"]

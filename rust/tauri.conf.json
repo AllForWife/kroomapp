@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "K ROOM",
+  "identifier": "xyz.548754321.kroom",
+  "build": { "frontendDist": "web" },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "app", "dmg"],
+    "createUpdaterArtifacts": true,
+    "category": "Music",
+    "copyright": "K ROOM",
+    "publisher": "K ROOM",
+    "shortDescription": "K ROOM",
+    "longDescription": "K ROOM for Windows and macOS",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false, "languages": ["TradChinese", "English"] }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "entitlements": "macos/entitlements.plist",
+      "infoPlist": "macos/Info.plist",
+      "dmg": {}
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQTc1REMwNEI4OTQxQzEKUldUQlFZbEx3RjJuRWkwZmo2OU1uVDlDMkFpeEwyanlobnMvZTRteDBqUlFkSUZGeEdnTGxNcDcK",
+      "windows": { "installMode": "quiet" }
+    },
+    "deep-link": {
+      "desktop": { "schemes": ["kroom", "discord-1569425359034781747"] }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-keep-room"
+description = "Enables the keep_room command without any pre-configured scope."
+commands.allow = ["keep_room"]
+
+[[permission]]
+identifier = "deny-keep-room"
+description = "Denies the keep_room command without any pre-configured scope."
+commands.deny = ["keep_room"]

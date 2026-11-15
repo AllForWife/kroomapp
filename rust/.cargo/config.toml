@@ -1,0 +1,6 @@
+# Local builds with the windows-gnu toolchain (no Visual Studio, no MinGW gcc): link with Rust's own lld in MinGW mode. GNU ld mishandles the short
+# import libraries llvm-dlltool makes (crashing binaries), and GNU dlltool needs an assembler that is not there. Needs a `dlltool` on PATH that
+# forwards to llvm-dlltool (see README.md "Building on Windows without Visual Studio"). CI builds with MSVC and is not affected by this.
+[target.x86_64-pc-windows-gnu]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes", "-C", "link-arg=-mi386pep"]

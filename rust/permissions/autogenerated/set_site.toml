@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-site"
+description = "Enables the set_site command without any pre-configured scope."
+commands.allow = ["set_site"]
+
+[[permission]]
+identifier = "deny-set-site"
+description = "Denies the set_site command without any pre-configured scope."
+commands.deny = ["set_site"]

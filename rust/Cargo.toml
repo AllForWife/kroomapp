@@ -1,0 +1,52 @@
+[package]
+name = "kroom"
+version = "2.0.0-rust.1"
+description = "K ROOM for Windows and macOS (Rust / Tauri port of desktop/)"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "kroom"
+path = "src/main.rs"
+
+[features]
+# the Steam build (docs/STEAM-BUILD.md): no self-update, no site / beta switch, ?store=1, Steamworks (needs the Steamworks redistributable next to the exe)
+steam = ["dep:steamworks"]
+# benchmarks / tests of a release build: KROOM_DEBUG_PORT opens the DevTools protocol port (never in a shipped build)
+devport = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["devtools"] }
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# native TLS (schannel / Security.framework): no C compiler needed, nothing extra shipped
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+keepawake = "0.6"
+tokio = { version = "1", features = ["net", "io-util", "time", "sync", "rt", "macros"] }
+steamworks = { version = "0.12", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+

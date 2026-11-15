@@ -1,0 +1,4 @@
+/target
+/node_modules
+/gen/schemas
+/.tauri-keys

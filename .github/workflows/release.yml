@@ -4,7 +4,7 @@
 name: release
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '!v*-rust.*'] # (vX.Y.Z-rust.N: the Rust app — release-rust.yml)
   workflow_dispatch:
 permissions:
   contents: write

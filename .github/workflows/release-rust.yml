@@ -1,0 +1,128 @@
+# The Rust (Tauri) version of the app — the main project's desktop-rs/, kept here in rust/. Push a tag like v2.0.0-rust.1 (the version in
+# rust/Cargo.toml) → GitHub builds the Windows installer and the Mac app and publishes them as a PRE-release next to the Electron releases:
+#   KRoom-rust-Setup.exe (+ .sig)            Windows installer, also what installed Rust apps update from
+#   KRoom-rust-mac.dmg                        Mac (Apple chips + Intel), to drag into Applications
+#   KRoom-rust-mac.app.tar.gz (+ .sig)       what installed Mac Rust apps update from
+#   latest.json                               the update manifest the Rust app looks for (rust/src/updates.rs)
+# Its "-rust" pre-release channel is skipped by the Electron app's updater, and release.yml does not run for these tags.
+# Repository secrets: TAURI_SIGNING_PRIVATE_KEY (+ TAURI_SIGNING_PRIVATE_KEY_PASSWORD if it has one) — the updater key whose public half is in
+# rust/tauri.conf.json; without it no update can be verified. The Mac signing secrets are the Electron build's (CSC_LINK, CSC_KEY_PASSWORD,
+# APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID); without CSC_LINK the Mac app is signed ad hoc (Gatekeeper asks on first start).
+name: release-rust
+on:
+  push:
+    tags: ['v*-rust.*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: rust
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Build the installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: installed apps could not verify this update"; exit 1; }
+          npx tauri build --bundles nsis
+          mkdir -p out
+          cp target/release/bundle/nsis/*-setup.exe out/KRoom-rust-Setup.exe
+          cp target/release/bundle/nsis/*-setup.exe.sig out/KRoom-rust-Setup.exe.sig
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-windows
+          if-no-files-found: error
+          path: rust/out/*
+  mac:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Build the Mac app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+          if [ -n "$CSC_LINK" ]; then
+            # the Developer ID certificate the Electron build uses; notarized with the same Apple ID (Tauri's variable names)
+            export APPLE_CERTIFICATE="$CSC_LINK" APPLE_CERTIFICATE_PASSWORD="$CSC_KEY_PASSWORD" APPLE_SIGNING_IDENTITY="Developer ID Application" APPLE_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD"
+          else
+            echo "::warning::no CSC_LINK secret: the Mac app is signed ad hoc only (not notarized)"
+            unset APPLE_ID APPLE_TEAM_ID; export APPLE_SIGNING_IDENTITY="-"
+          fi
+          npx tauri build --target universal-apple-darwin --bundles app,dmg
+          B=target/universal-apple-darwin/release/bundle
+          codesign --verify --deep --strict "$B/macos/K ROOM.app"
+          mkdir -p out
+          cp "$B/macos/K ROOM.app.tar.gz" out/KRoom-rust-mac.app.tar.gz
+          cp "$B/macos/K ROOM.app.tar.gz.sig" out/KRoom-rust-mac.app.tar.gz.sig
+          cp "$B"/dmg/*.dmg out/KRoom-rust-mac.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-mac
+          if-no-files-found: error
+          path: rust/out/*
+  publish:
+    needs: [windows, mac]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Write latest.json (the Rust app's update manifest)
+        run: |
+          V="${GITHUB_REF_NAME#v}"; U="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          node -e '
+            const fs = require("fs"), [v, u] = process.argv.slice(1), sig = (f) => fs.readFileSync("out/" + f, "utf8").trim();
+            const mac = { signature: sig("KRoom-rust-mac.app.tar.gz.sig"), url: u + "/KRoom-rust-mac.app.tar.gz" };
+            fs.writeFileSync("out/latest.json", JSON.stringify({ version: v, notes: "K ROOM " + v, pub_date: new Date().toISOString(), platforms: {
+              "windows-x86_64": { signature: sig("KRoom-rust-Setup.exe.sig"), url: u + "/KRoom-rust-Setup.exe" },
+              "darwin-aarch64": mac, "darwin-x86_64": mac } }, null, 2));
+          ' "$V" "$U"
+          cat out/latest.json
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/KRoom-rust-Setup.exe out/KRoom-rust-Setup.exe.sig out/KRoom-rust-mac.dmg \
+            out/KRoom-rust-mac.app.tar.gz out/KRoom-rust-mac.app.tar.gz.sig out/latest.json --prerelease \
+            --title "K ROOM $GITHUB_REF_NAME（Rust 版測試）" \
+            --notes "🧪 Rust 版 K ROOM 測試版：只給測試用。一般版本（Electron）不會自動更新到這裡；在點歌平板 → 🧪 App 測試版 → App 版本 可以在兩個版本之間切換。
+
+          **Windows**：下載 **KRoom-rust-Setup.exe** 安裝（一般使用者帳號就能安裝）。
+          **Mac**（Apple 晶片與 Intel，macOS 12 以上）：下載 **KRoom-rust-mac.dmg**，打開後把 K ROOM 拖到「應用程式」。"

@@ -1,7 +1,7 @@
 {
   "name": "kroom-desktop",
   "productName": "K ROOM",
-  "version": "1.0.13",
+  "version": "1.0.16-beta.1",
   "description": "K ROOM for Windows and macOS: the website in its own window, without the browser's autoplay gate and background throttling",
   "author": "K ROOM",
   "private": true,
@@ -13,7 +13,9 @@
     "release": "electron-builder --win --x64 --publish never",
     "dist:mac": "electron-builder --mac --universal",
     "release:mac": "electron-builder --mac --universal --publish never",
-    "release:mac:adhoc": "electron-builder --mac --universal --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.extraMetadata.macAdhoc=true"
+    "release:mac:adhoc": "electron-builder --mac --universal --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.extraMetadata.macAdhoc=true",
+    "start:steam": "node steam/start-steam.js",
+    "dist:steam": "electron-builder --win --x64 --config steam/electron-builder.steam.json --publish never"
   },
   "build": {
     "appId": "xyz.548754321.kroom",
@@ -42,6 +44,8 @@
       "preload.js",
       "keyshift.js",
       "offline.html",
+      "buildflags.js",
+      "steam-integration.js",
       "discord.js",
       "package.json"
     ],

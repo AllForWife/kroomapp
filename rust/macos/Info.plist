@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>K ROOM 用麥克風讓你在包廂裡唱歌、和朋友說話。</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.music</string>
+</dict>
+</plist>

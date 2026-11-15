@@ -45,3 +45,9 @@ npm run release:mac   # 打包 Mac（要在 Mac 上）：dist/KRoom-mac.dmg、di
 ```
 
 發行新版：改 `package.json` 的 `version`，然後推送同名 tag（例如 `v1.0.1`），GitHub Actions 會自動打包 Windows 和 Mac 版並建立 Release，上面的下載連結會自動指向最新版。
+
+## 🧪 Rust 版（測試中）
+
+`rust/` 是同一個 App 的 Rust 版（Tauri 2：Windows 用系統的 WebView2、Mac 用 WKWebView），安裝檔約 2 MB。
+測試版發佈為 pre-release（tag 例如 `v2.0.0-rust.1`，由 `.github/workflows/release-rust.yml` 打包），一般玩家不會自動更新到它。
+管理員／測試員可以在點歌平板 → 🧪 App 測試版 → App 版本 在 Electron 與 Rust 之間切換（背景安裝、保持登入）。說明見 [rust/README.md](rust/README.md)。
