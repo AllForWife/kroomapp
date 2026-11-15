@@ -114,13 +114,27 @@ jobs:
               "darwin-aarch64": mac, "darwin-x86_64": mac } }, null, 2));
           ' "$V" "$U"
           cat out/latest.json
+      # GitHub lists releases by version, so this one (2.x) comes first — and an Electron app before 1.0.16 with beta updates on takes the first
+      # release and looks for latest.yml / latest-mac.yml in it. So the newest Electron release's update files come along: such an app finds
+      # them here and updates to that Electron version (from 1.0.16 on, Electron skips the Rust releases itself). The Rust app reads latest.json only.
+      - name: Electron's update files too (for Electron apps before 1.0.16)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          E=$(gh api "repos/$GH_REPO/releases?per_page=50" --jq '[.[] | select(.draft | not) | select(.tag_name | test("-rust[.]") | not) | select(any(.assets[]; .name == "latest.yml"))][0].tag_name')
+          [ -n "$E" ] && [ "$E" != "null" ] || { echo "::error::no Electron release with latest.yml found"; exit 1; }
+          echo "Electron update files from $E"
+          mkdir -p electron
+          gh release download "$E" -D electron -p latest.yml -p latest-mac.yml -p KRoom-Setup.exe -p KRoom-Setup.exe.blockmap -p KRoom-mac.zip -p KRoom-mac.zip.blockmap
+          ls -la electron
       - name: Publish the pre-release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$GITHUB_REF_NAME" out/KRoom-rust-Setup.exe out/KRoom-rust-Setup.exe.sig out/KRoom-rust-mac.dmg \
-            out/KRoom-rust-mac.app.tar.gz out/KRoom-rust-mac.app.tar.gz.sig out/latest.json --prerelease \
+            out/KRoom-rust-mac.app.tar.gz out/KRoom-rust-mac.app.tar.gz.sig out/latest.json electron/* --prerelease \
             --title "K ROOM $GITHUB_REF_NAME（Rust 版測試）" \
             --notes "🧪 Rust 版 K ROOM 測試版：只給測試用。一般版本（Electron）不會自動更新到這裡；在點歌平板 → 🧪 App 測試版 → App 版本 可以在兩個版本之間切換。
 

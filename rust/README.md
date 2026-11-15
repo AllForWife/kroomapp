@@ -78,5 +78,9 @@ resource script into a `.res` — small shims kept in `~/.kroom-toolchain/` on t
    `KRoom-rust-Setup.exe`, `KRoom-rust-mac.dmg`, the signed update files and `latest.json`.
 
 Secrets: `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`) — the private half of the updater key in `tauri.conf.json` (`plugins.updater.pubkey`); the Mac
-uses the Electron build's `CSC_LINK` / `APPLE_*` secrets. Ship the Electron release that has the App 版本 switch (and skips `-rust` releases in its
-beta updates) **before** the first Rust pre-release: an older Electron install with App 測試版 on would otherwise try to update to the Rust release.
+uses the Electron build's `CSC_LINK` / `APPLE_*` secrets.
+
+GitHub lists releases by version, so a `2.x-rust` release always comes before every Electron 1.x, whatever was published last. An Electron app
+before 1.0.16 with App 測試版 on takes that first release and looks for `latest.yml` / `latest-mac.yml` in it — so the workflow also copies the
+newest Electron release's update files (`latest*.yml`, `KRoom-Setup.exe`, `KRoom-mac.zip` + blockmaps) into each Rust release. Such an app then
+updates to that Electron version; from 1.0.16 on, Electron skips the Rust releases itself. The Rust app reads only `latest.json`.
