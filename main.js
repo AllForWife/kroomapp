@@ -489,12 +489,15 @@ function createWindow() {
   const winState = () => { try { if (win && !win.isDestroyed()) win.webContents.send('win-state', { min: win.isMinimized() || !win.isVisible(), focus: win.isFocused() }); } catch { /* closing */ } };
   for (const ev of ['minimize', 'restore', 'hide', 'show', 'blur', 'focus']) win.on(ev, winState);
   win.webContents.on('did-finish-load', winState);
-  // Windows: the page (WebRTC decoding, Web Audio mixing) and Chromium's audio service one step above normal — on a PC with many programs open,
+  // Windows: the page (WebRTC decoding, Web Audio mixing) and Chromium's service processes (audio, network) one step above normal — on a PC with many programs open,
   // the program in front got the CPU first and K ROOM's voice broke up behind it. Checked again now and then (a new page can get a new process)
   if (process.platform === 'win32') {
     const boost = () => {
       if (!win || win.isDestroyed()) return; const os = require('os'), pids = new Set([win.webContents.getOSProcessId()]);
-      for (const m of app.getAppMetrics()) if (m.type === 'Utility' && /audio/i.test(m.serviceName || m.name || '')) pids.add(m.pid);
+      // every service process, not only the audio one: the voice's packets go through the network service, and left at normal priority it was
+      // starved by a heavy program in front — voices arrived about a second late, with gaps (measured: desktop-rs/tests/bg-voice.mjs, 5 talkers
+      // and a song, a program keeping every core busy in front: 0.9–1.5 s of buffer → 40 ms). They are small processes: nothing is taken from the game in front
+      for (const m of app.getAppMetrics()) if (m.type === 'Utility') pids.add(m.pid);
       for (const pid of pids) { if (!pid || boosted.has(pid)) continue; try { os.setPriority(pid, os.constants.priority.PRIORITY_ABOVE_NORMAL); boosted.add(pid); } catch { /* not allowed: left as it is */ } }
     };
     const boosted = new Set(); win.webContents.on('did-finish-load', boost); const bt = setInterval(boost, 30_000); win.on('closed', () => clearInterval(bt));
