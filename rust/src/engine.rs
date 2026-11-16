@@ -2,7 +2,8 @@
 //! were: this app's signed-in page makes a one-time sign-in code (/api/auth/app/code, 2 min, once) and hands it, with the room, to the Electron app
 //! in ITS config.json (desktop/main.js engineHandoff reads them before its first page; its device id was never changed). Then the Electron app is
 //! installed silently and started (Windows: KRoom-Setup.exe /S --force-run; a Mac: this K ROOM.app is replaced in place by Electron's), and this one
-//! quits. Needs an Electron release that reads the handoff (1.0.16 and later): GitHub's "latest" release (the Rust ones are pre-releases).
+//! quits. Which Electron: the newest Electron release, betas included (a player switching back is a tester, and only 1.0.16 and later read the
+//! handoff — GitHub's "latest" normal release could be older, and would then offer that beta as an update right away).
 use crate::{config, shell, App};
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
@@ -15,8 +16,12 @@ const ELECTRON_ASSET: &str = "KRoom-Setup.exe";
 #[cfg(not(windows))]
 const ELECTRON_ASSET: &str = "KRoom-mac.zip";
 
-fn electron_url() -> String {
-    format!("https://github.com/{}/releases/latest/download/{ELECTRON_ASSET}", crate::updates::REPO)
+/// the newest Electron release's installer (GitHub lists releases by version, newest first; the Rust ones — vX.Y.Z-rust.N — are skipped, even
+/// though they carry a copy of Electron's update files); GitHub's "latest" normal release only if that list cannot be read
+async fn electron_url() -> String {
+    crate::updates::newest_release(ELECTRON_ASSET, |t| !t.contains("-rust."))
+        .await
+        .unwrap_or_else(|_| format!("https://github.com/{}/releases/latest/download/{ELECTRON_ASSET}", crate::updates::REPO))
 }
 
 async fn download(url: &str) -> Option<Vec<u8>> {
@@ -126,16 +131,46 @@ mod tests {
         let out = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\1d7a\r\n    UninstallString    REG_SZ    \"C:\\Users\\A B\\AppData\\Local\\Programs\\K ROOM\\Uninstall K ROOM.exe\" /currentuser\r\n";
         assert_eq!(super::parse_uninstall(out).unwrap(), std::path::PathBuf::from(r"C:\Users\A B\AppData\Local\Programs\K ROOM\K ROOM.exe"));
     }
+
+    /// the real thing, in two throwaway folders: a "K ROOM.lnk" pointing at one program is pointed at another (a path with spaces and a quote)
+    #[cfg(windows)]
+    #[test]
+    fn repoints_shortcuts() {
+        let run = |ps: &str| std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", ps]).output().unwrap();
+        let base = std::env::temp_dir().join(format!("kroom shortcut test {}", std::process::id()));
+        let (a, b) = (base.join("Desk top"), base.join("Pro'grams"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let q = |p: &std::path::Path| format!("'{}'", p.display().to_string().replace('\'', "''"));
+        for d in [&a, &b] {
+            run(&format!("$l = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path {} 'K ROOM.lnk')); $l.TargetPath = 'C:\\Windows\\notepad.exe'; $l.Save()", q(d)));
+        }
+        let electron = std::path::Path::new(r"C:\Users\A B\AppData\Local\Programs\K ROOM\K ROOM.exe");
+        run(&super::shortcut_script(electron, &format!("{}, {}", q(&a), q(&b))));
+        for d in [&a, &b] {
+            let out = run(&format!("(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path {} 'K ROOM.lnk')).TargetPath", q(d)));
+            assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), electron.display().to_string(), "in {}", d.display());
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
 
 /// the "K ROOM" shortcuts (desktop, Start menu) open the Electron app again (the Rust installer had pointed them here)
+/// (both installers use the same two: the Rust one keeps no Start-menu folder, so its Start-menu shortcut is Electron's own Programs\K ROOM.lnk —
+/// and Electron's update relaunches through that very shortcut)
 #[cfg(windows)]
 fn point_shortcuts(exe: &std::path::Path) {
-    let ps = format!(
-        "$ErrorActionPreference='SilentlyContinue'; $w = New-Object -ComObject WScript.Shell; $e = '{e}'; foreach ($p in @([Environment]::GetFolderPath('Desktop') + '\\K ROOM.lnk', [Environment]::GetFolderPath('Programs') + '\\K ROOM.lnk')) {{ if (Test-Path -LiteralPath $p) {{ $l = $w.CreateShortcut($p); $l.TargetPath = $e; $l.WorkingDirectory = (Split-Path $e); $l.IconLocation = $e + ',0'; $l.Save() }} }}",
+    let _ = hidden(std::path::Path::new("powershell"), &["-NoProfile", "-NonInteractive", "-Command", &shortcut_script(exe, "[Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')")]);
+}
+
+/// the PowerShell that points "K ROOM.lnk" in each of these folders (a PowerShell list expression) at exe. (2.0.0-rust.1 wrote
+/// `@(A + '\K ROOM.lnk', B + '\K ROOM.lnk')`: the comma binds before the +, so that was ONE path made of both — nothing was ever repointed.)
+#[cfg_attr(not(windows), allow(dead_code))]
+fn shortcut_script(exe: &std::path::Path, dirs: &str) -> String {
+    format!(
+        "$ErrorActionPreference='SilentlyContinue'; $w = New-Object -ComObject WScript.Shell; $e = '{e}'; foreach ($d in @({dirs})) {{ $p = Join-Path $d 'K ROOM.lnk'; if (Test-Path -LiteralPath $p) {{ $l = $w.CreateShortcut($p); $l.TargetPath = $e; $l.WorkingDirectory = (Split-Path $e); $l.IconLocation = $e + ',0'; $l.Save() }} }}",
         e = exe.display().to_string().replace('\'', "''")
-    );
-    let _ = hidden(std::path::Path::new("powershell"), &["-NoProfile", "-NonInteractive", "-Command", &ps]);
+    )
 }
 
 fn fail(h: &AppHandle, app: &Arc<App>, error: &str) -> Value {
@@ -154,7 +189,7 @@ pub async fn to_electron(h: &AppHandle, app: &Arc<App>) -> Value {
     if signed_in(app).await && mint(app).await.is_none() {
         return fail(h, app, "signin");
     }
-    let Some(bytes) = download(&electron_url()).await else { return fail(h, app, "download") };
+    let Some(bytes) = download(&electron_url().await).await else { return fail(h, app, "download") };
     let tmp = std::env::temp_dir().join(format!("kroom-electron-{}", shell::now_ms()));
     let _ = std::fs::create_dir_all(&tmp);
     let file = tmp.join(ELECTRON_ASSET);
