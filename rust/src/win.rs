@@ -330,12 +330,37 @@ fn boost(core: &ICoreWebView2) {
         }
         i += 1;
     }
-    for pid in ours.into_iter().skip(1) {
+    full_speed(unsafe { GetCurrentProcess() });
+    for (i, pid) in ours.into_iter().enumerate() {
         if let Ok(h) = unsafe { OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
-            if unsafe { GetPriorityClass(h) } == NORMAL_PRIORITY_CLASS.0 {
-                let _ = unsafe { SetPriorityClass(h, ABOVE_NORMAL_PRIORITY_CLASS) };
+            let want = match std::env::var("KROOM_TEST_PRIORITY").ok().filter(|_| cfg!(debug_assertions)).as_deref() {
+                Some("high") => Some(HIGH_PRIORITY_CLASS),
+                Some("normal") => None,
+                _ => Some(ABOVE_NORMAL_PRIORITY_CLASS),
+            };
+            if let Some(want) = want {
+                let now = unsafe { GetPriorityClass(h) };
+                if i > 0 && now != want.0 && (now == NORMAL_PRIORITY_CLASS.0 || now == ABOVE_NORMAL_PRIORITY_CLASS.0) {
+                    let _ = unsafe { SetPriorityClass(h, want) };
+                }
             }
+            full_speed(h);
             let _ = unsafe { CloseHandle(h) };
+        }
+    }
+}
+
+/// Windows 11 slows a program whose window is minimised, covered or not in front (its "efficiency" rules: the slow cores of a hybrid CPU, a lower
+/// clock speed, and timers back at 15.6 ms steps) unless the process says it wants neither — and a K ROOM behind another program is still
+/// carrying a voice call. Said for the app and every browser process under it (the browser says it for the page's own process only).
+/// Windows 10 knows only the first of the two: asked again without the timer part.
+fn full_speed(h: windows::Win32::Foundation::HANDLE) {
+    use windows::Win32::System::Threading::*;
+    let size = std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32;
+    for mask in [PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED] {
+        let st = PROCESS_POWER_THROTTLING_STATE { Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION, ControlMask: mask, StateMask: 0 };
+        if unsafe { SetProcessInformation(h, ProcessPowerThrottling, &st as *const _ as *const core::ffi::c_void, size) }.is_ok() {
+            break;
         }
     }
 }

@@ -209,9 +209,13 @@ fn main() {
     let steam = cfg!(feature = "steam") || flag_env("STEAM_BUILD");
     let launch_args: Vec<String> = std::env::args().collect();
 
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // (tests, debug / devport builds only: KROOM_TEST_SECOND=1 runs next to an installed K ROOM that is open — with WEBVIEW2_USER_DATA_FOLDER
+    // set to a folder of its own)
+    let second = (cfg!(debug_assertions) || cfg!(feature = "devport")) && std::env::var_os("KROOM_TEST_SECOND").is_some();
+    if !second {
         // a second start only brings the open window forward (and hands over its kroom:// link)
-        .plugin(tauri_plugin_single_instance::init(|h, argv, _cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|h, argv, _cwd| {
             if let Some(w) = h.get_webview_window("main") {
                 if w.is_minimized().unwrap_or(false) {
                     let _ = w.unminimize();
@@ -223,7 +227,9 @@ fn main() {
             for l in links_in(&argv) {
                 shell::deep_link(h, &app, &l);
             }
-        }))
+        }));
+    }
+    let mut builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
