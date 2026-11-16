@@ -10,6 +10,8 @@ mod engine;
 mod shell;
 mod steam;
 mod updates;
+#[cfg(target_os = "macos")]
+mod mac;
 #[cfg(windows)]
 mod win;
 

@@ -205,6 +205,8 @@ pub fn create_window(h: &AppHandle, app: &Arc<App>, kept: &Value) -> tauri::Resu
     let win = b.build()?;
     #[cfg(windows)]
     crate::win::attach(&win, app.clone());
+    #[cfg(target_os = "macos")]
+    crate::mac::allow_pointer_lock(&win);
     Ok(win)
 }
 
