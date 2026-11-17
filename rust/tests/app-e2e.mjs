@@ -24,7 +24,7 @@ const ua = await page.evaluate(() => navigator.userAgent);
 check('user agent carries KRoomDesktop/<version> and KRoomRust/<version>', /KRoomDesktop\/2\.\d+\.\d+/.test(ua) && /KRoomRust\/2\.\d+\.\d+/.test(ua) && !/Electron/.test(ua), ua);
 
 const keys = await page.evaluate(() => Object.keys(window.kroomApp || {}).sort());
-const want = ['embedMedia', 'embedPlay', 'getDisplay', 'getEngine', 'getSites', 'loginWithBrowser', 'onWindowState', 'relaunch', 'setAwake', 'setBeta', 'setEmbedKey', 'setEmbedVolume', 'setEngine', 'setPresence', 'setSite', 'setUnlockFps'];
+const want = ['embedMedia', 'embedPlay', 'getDisplay', 'getEngine', 'getSites', 'loginWithBrowser', 'onWindowState', 'relaunch', 'setAwake', 'setBeta', 'setEmbedKey', 'setEmbedQuality', 'setEmbedVolume', 'setEngine', 'setPresence', 'setSite', 'setUnlockFps'];
 check('window.kroomApp has the preload.js API (+ engine switch)', JSON.stringify(keys) === JSON.stringify(want), keys.join(','));
 check('window.kroomApp cannot be replaced by the page', await page.evaluate(() => { try { window.kroomApp = 1; } catch {} return typeof window.kroomApp === 'object' && Object.isFrozen(window.kroomApp); }));
 

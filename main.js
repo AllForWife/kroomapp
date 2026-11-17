@@ -365,6 +365,16 @@ async function applyEmbedKey() {
   return out;
 }
 ipcMain.handle('embed-key', async (e, n) => { if (!fromSite(e)) return null; const k = Math.round(Number(n)); if (!(k >= -12 && k <= 12)) return null; embedKey = k; return applyEmbedKey(); });
+/* ---- 🌙 the YouTube player's quality: in the background nobody watches the TV — the page asks for 'tiny' (144p) and 'auto' when back
+   (src/music/stage.ts applyBgQuality). Only inside YouTube's frame can it be set (its player's setPlaybackQualityRange; the page's own API call
+   for it does nothing any more). ---- */
+const qualityJs = (q) => `(() => { const m = document.getElementById('movie_player'); if (!m || typeof m.setPlaybackQualityRange !== 'function') return null; m.setPlaybackQualityRange(${JSON.stringify(q)}, ${JSON.stringify(q)}); return ${JSON.stringify(q)}; })()`;
+ipcMain.handle('embed-quality', async (e, q) => {
+  if (!fromSite(e) || !win || !['tiny', 'small', 'medium', 'auto'].includes(q)) return null;
+  let out = null;
+  for (const f of win.webContents.mainFrame.framesInSubtree) if (f !== win.webContents.mainFrame && isYt(f.url)) out = (await Promise.race([f.executeJavaScript(qualityJs(q)).catch(() => null), new Promise((res) => setTimeout(() => res(null), 1000))])) || out;
+  return out;
+});
 /* ---- ▶ Twitch stuck on its play button: Twitch does not autoplay a player drawn on our 3D TV (「style visibility」), and the page's play() through
    Twitch's API does not load the stream either (the API even says it is playing). Its own ▶ pressed inside its frame does — so while the room plays,
    the page asks (src/music/stage.ts, every 2 s) and the app presses it only when Twitch's <video> is really not playing. ---- */

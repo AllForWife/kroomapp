@@ -32,6 +32,8 @@ const bridge = {
   embedMedia: (op, arg) => ipcRenderer.invoke('embed-media', String(op), Number(arg)),
   /** 🎼 升降 Key (semitones, −12…12) for the YouTube / Bilibili player → { semis, wired, shifting, latency (s), pending, error } or null (no player) */
   setEmbedKey: (n) => ipcRenderer.invoke('embed-key', Number(n)),
+  /** 🌙 the YouTube player's quality ('tiny' in the background, 'auto' back) → the level set, or null (no player) */
+  setEmbedQuality: (q) => ipcRenderer.invoke('embed-quality', String(q)),
   /** ▶ Twitch stuck on its play button: the app presses it inside Twitch's frame (only when its video is really not playing) */
   embedPlay: () => ipcRenderer.invoke('embed-play'),
   /** 🌙 a song is playing: the screen does not go to sleep (or the screensaver) meanwhile */

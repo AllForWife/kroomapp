@@ -90,6 +90,12 @@
       for (const { r } of await ask(['bili', 'yt'], 'key', k)) if (r && typeof r === 'object' && (!out || (r.wired && !out.wired))) out = r;
       return out;
     },
+    /** 🌙 the YouTube player's quality ('tiny' in the background, 'auto' back) → the level set, or null (no player) */
+    setEmbedQuality: async (q) => {
+      q = String(q); if (!['tiny', 'small', 'medium', 'auto'].includes(q)) return null;
+      const got = await ask(['yt'], 'quality', q, null, (r) => r === q);
+      return got.some((x) => x.r === q) ? q : null;
+    },
     /** ▶ Twitch stuck on its play button */
     embedPlay: async () => { const got = await ask(['twitch'], 'play'); return got.length ? got.map((x) => String(x.r)).join(',') : null; },
     /** 🧪 which app this is — { current: 'rust' | 'electron', engines } — and switching to the other one (it is installed, then started) */

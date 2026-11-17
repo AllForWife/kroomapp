@@ -62,6 +62,12 @@
     media: (a, b) => (kind === 'bili' && ['time', 'seek', 'rate', 'pause', 'play'].includes(a) ? mediaOp(a, typeof b === 'number' ? b : null) : undefined),
     key: (a) => (kind !== 'twitch' && typeof a === 'number' ? key(a) : undefined),
     play: () => (kind === 'twitch' ? twitchKick() : undefined),
+    // 🌙 the YouTube player's quality (main.js qualityJs): 'tiny' in the background, 'auto' back
+    quality: (a) => {
+      if (kind !== 'yt' || !['tiny', 'small', 'medium', 'auto'].includes(a)) return undefined;
+      const m = document.getElementById('movie_player'); if (!m || typeof m.setPlaybackQualityRange !== 'function') return null;
+      m.setPlaybackQualityRange(a, a); return a;
+    },
   };
   addEventListener('message', (e) => {
     if (e.source !== top || e.origin !== ORIGIN) return;
