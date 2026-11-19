@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vmc-stop"
+description = "Enables the vmc_stop command without any pre-configured scope."
+commands.allow = ["vmc_stop"]
+
+[[permission]]
+identifier = "deny-vmc-stop"
+description = "Denies the vmc_stop command without any pre-configured scope."
+commands.deny = ["vmc_stop"]

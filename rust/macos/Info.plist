@@ -4,6 +4,8 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>K ROOM 用麥克風讓你在包廂裡唱歌、和朋友說話。</string>
+  <key>NSCameraUsageDescription</key>
+  <string>VTuber 演出時，K ROOM 用攝影機在你的電腦上追蹤臉部表情和動作（影像不會上傳）。</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.music</string>
 </dict>

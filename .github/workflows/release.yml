@@ -17,6 +17,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # 🎤 VTuber 的原生臉部追蹤（native/facetrack，Rust）：npm run release 之前會建它（package.json prerelease → facetrack.mjs）
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/facetrack
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci
       - run: node node_modules/electron/install.js # (newer npm may skip electron's own download script)
       - run: npm run release
@@ -37,6 +45,16 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # 🎤 VTuber 的原生臉部追蹤（native/facetrack）：Apple 晶片＋Intel 兩種都要建（universal App）
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/facetrack
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci
       - run: node node_modules/electron/install.js
       # one app for Apple Silicon and Intel (universal), signed with the Developer ID and notarized by Apple (it then updates itself). Repository secrets:

@@ -27,10 +27,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust
+            native/facetrack
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: actions/setup-python@v5   # (🎤 tauri build 之前建原生臉部追蹤：tauri.*.conf.json beforeBuildCommand → scripts/facetrack.mjs，要抓 ONNX Runtime)
+        with:
+          python-version: '3.12'
       - run: npm ci
       - name: Build the installer
         env:
@@ -59,10 +64,15 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: |
+            rust
+            native/facetrack
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: actions/setup-python@v5   # (🎤 tauri build 之前建原生臉部追蹤：tauri.*.conf.json beforeBuildCommand → scripts/facetrack.mjs，要抓 ONNX Runtime)
+        with:
+          python-version: '3.12'
       - run: npm ci
       - name: Build the Mac app
         env:

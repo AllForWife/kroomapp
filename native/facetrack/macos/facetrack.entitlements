@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- kroom-facetrack（hardened runtime）：自己開攝影機；載入同一個 App 裡附的 libonnxruntime.dylib（ad-hoc／本機建置時簽章團隊不同） -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.camera</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>

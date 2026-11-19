@@ -1,0 +1,8 @@
+facetrack-models/ 的 face_detector.onnx、face_landmarks_detector.onnx、face_blendshapes.onnx、canonical.json
+來自 Google MediaPipe 的 FaceLandmarker 模型（face_landmarker.task，float16/1），由 K ROOM 轉成 ONNX 格式
+（tf2onnx；批次固定 1、補白改成明確數值、節點改名；數值與原模型相同，見 native/facetrack/tools/）。
+canonical.json 取自同一個模型包的 geometry_pipeline_metadata_landmarks.binarypb（標準臉的頂點與 Procrustes 權重）。
+
+原始模型：https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+授權：Apache License 2.0（https://www.apache.org/licenses/LICENSE-2.0）
+Copyright 2023 The MediaPipe Authors.

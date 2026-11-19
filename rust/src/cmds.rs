@@ -3,7 +3,7 @@
 use crate::{config, engine, shell, updates, App};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tauri::{AppHandle, State, Webview};
+use tauri::{AppHandle, Manager, State, Webview};
 
 type S<'a> = State<'a, Arc<App>>;
 
@@ -167,4 +167,68 @@ pub async fn set_engine(webview: Webview, app: S<'_>, h: AppHandle, engine: Stri
         return Ok(json!({ "ok": false }));
     }
     Ok(engine::to_electron(&h, app.inner()).await)
+}
+
+/// 🎤 VTuber 演出：開始收 VMC（vmc.rs；只給主視窗的 K ROOM 頁面）
+#[tauri::command]
+pub fn vmc_start(webview: Webview, app: S, h: AppHandle, port: Option<u16>) -> Value {
+    if !from_main(&webview, &app) { return json!({ "ok": false }); }
+    let p = port.filter(|p| *p > 1023).unwrap_or(39539);
+    match h.get_webview_window("main").ok_or("no window".to_string()).and_then(|w| crate::vmc::start(w, p)) {
+        Ok(p) => json!({ "ok": true, "port": p }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    }
+}
+#[tauri::command]
+pub fn vmc_stop(webview: Webview, app: S) -> bool {
+    if !from_main(&webview, &app) { return false; }
+    crate::vmc::stop(); true
+}
+/// 🎤 VTuber 演出：原生臉部追蹤子程式（facetrack.rs；結果走上面的 VMC）
+#[tauri::command]
+pub fn facetrack_start(webview: Webview, app: S, h: AppHandle, opts: Option<Value>) -> Value {
+    if !from_main(&webview, &app) { return json!({ "ok": false }); }
+    let o = opts.unwrap_or(Value::Null);
+    match h.get_webview_window("main").ok_or("no window".to_string()).and_then(|w| crate::facetrack::start(w, &o)) {
+        Ok(p) => json!({ "ok": true, "port": p }),
+        Err(e) => json!({ "ok": false, "error": e }),
+    }
+}
+#[tauri::command]
+pub fn facetrack_stop(webview: Webview, app: S) -> bool {
+    if !from_main(&webview, &app) { return false; }
+    crate::facetrack::stop(); true
+}
+/// 🥽 VTuber 的 VR（vr.rs；跟 Electron 版的 vr-*／vrui-* 一樣）：允許了沒、允許／取消（第一次要重開）、代按進 VR、VR 裡的畫面與雷射輸入
+#[tauri::command]
+pub fn vr_get(webview: Webview, app: S) -> bool { from_main(&webview, &app) && crate::vr::allowed() }
+#[tauri::command]
+pub fn vr_set(webview: Webview, app: S, h: AppHandle, on: bool) -> Value {
+    if !from_main(&webview, &app) { return json!({ "ok": false }); }
+    let r = crate::vr::set(on);
+    if r["relaunch"] == json!(true) { let h2 = h.clone(); std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(600)); h2.restart(); }); }
+    r
+}
+#[tauri::command]
+pub fn vr_enter(webview: Webview, app: S, h: AppHandle) -> bool {
+    if !from_main(&webview, &app) { return false; }
+    h.get_webview_window("main").map(|w| { crate::vr::eval_gesture(&w, "window.__kroomVrEnterNow && window.__kroomVrEnterNow()"); true }).unwrap_or(false)
+}
+#[tauri::command]
+pub fn vrui_start(webview: Webview, app: S, h: AppHandle) -> bool {
+    from_main(&webview, &app) && h.get_webview_window("main").map(|w| crate::vr::ui_start(&w)).unwrap_or(false)
+}
+#[tauri::command]
+pub fn vrui_stop(webview: Webview, app: S, h: AppHandle) -> bool {
+    if !from_main(&webview, &app) { return false; }
+    if let Some(w) = h.get_webview_window("main") { crate::vr::ui_stop(&w); } true
+}
+#[tauri::command]
+pub fn vrui_input(webview: Webview, app: S, h: AppHandle, ev: Value) -> bool {
+    if !from_main(&webview, &app) { return false; }
+    if let Some(w) = h.get_webview_window("main") { crate::vr::ui_input(&w, &ev); } true
+}
+#[tauri::command]
+pub fn facetrack_available(webview: Webview, app: S, h: AppHandle) -> bool {
+    from_main(&webview, &app) && h.get_webview_window("main").map(|w| crate::facetrack::available(&w)).unwrap_or(false)
 }

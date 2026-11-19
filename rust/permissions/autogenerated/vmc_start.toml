@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vmc-start"
+description = "Enables the vmc_start command without any pre-configured scope."
+commands.allow = ["vmc_start"]
+
+[[permission]]
+identifier = "deny-vmc-start"
+description = "Denies the vmc_start command without any pre-configured scope."
+commands.deny = ["vmc_start"]

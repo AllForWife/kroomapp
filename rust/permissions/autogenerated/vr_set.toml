@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vr-set"
+description = "Enables the vr_set command without any pre-configured scope."
+commands.allow = ["vr_set"]
+
+[[permission]]
+identifier = "deny-vr-set"
+description = "Denies the vr_set command without any pre-configured scope."
+commands.deny = ["vr_set"]

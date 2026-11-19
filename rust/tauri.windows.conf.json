@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "resources": {
+      "../native/facetrack/dist/win/": "facetrack/"
+    }
+  },
+  "build": {
+    "beforeBuildCommand": {
+      "script": "node scripts/facetrack.mjs",
+      "cwd": "."
+    }
+  }
+}

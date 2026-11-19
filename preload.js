@@ -28,6 +28,14 @@ const bridge = {
   getSites: () => ipcRenderer.invoke('get-sites'),
   /** 🔊 the volume (0–1) for the Bilibili player inside the page (the page itself cannot reach it) */
   setEmbedVolume: (v) => ipcRenderer.invoke('embed-volume', Number(v)),
+  /** 🎤 VTuber 演出：收 VMC（動捕軟體的全身姿勢，main.js vmc-start）。onFrame(cb) 回傳取消函式 */
+  vmc: { start: (port) => ipcRenderer.invoke('vmc-start', port), stop: () => ipcRenderer.invoke('vmc-stop'), onFrame: (cb) => { const h = (_e, f) => cb(f); ipcRenderer.on('vmc-frame', h); return () => ipcRenderer.removeListener('vmc-frame', h); }, onError: (cb) => { const h = (_e, m) => cb(m); ipcRenderer.on('vmc-error', h); return () => ipcRenderer.removeListener('vmc-error', h); } },
+  /** 🎤 VTuber 演出：原生臉部追蹤（main.js facetrack-start；結果走上面的 VMC）。onStatus(cb) 收 {t:'ready'|'stat'|'error'|'exit',…}，回傳取消函式 */
+  facetrack: { available: () => ipcRenderer.invoke('facetrack-available'), start: (o) => ipcRenderer.invoke('facetrack-start', o), stop: () => ipcRenderer.invoke('facetrack-stop'), onStatus: (cb) => { const h = (_e, m) => cb(m); ipcRenderer.on('facetrack-status', h); return () => ipcRenderer.removeListener('facetrack-status', h); } },
+  /** 🥽 VTuber 的 VR（main.js vr-*）：get／set（這台允許 VR；第一次要重開 App）、enter（代按進 VR） */
+  vr: { get: () => ipcRenderer.invoke('vr-get'), set: (on) => ipcRenderer.invoke('vr-set', !!on), enter: () => ipcRenderer.invoke('vr-enter') },
+  /** 🥽 VR 裡的「畫面」（main.js vrui-*）：頁面的畫面（JPEG）與雷射點下去的滑鼠動作 */
+  vrui: { start: () => ipcRenderer.invoke('vrui-start'), stop: () => ipcRenderer.invoke('vrui-stop'), onFrame: (cb) => { const h = (_e, f) => cb(f); ipcRenderer.on('vrui-frame', h); return () => ipcRenderer.removeListener('vrui-frame', h); }, input: (ev) => ipcRenderer.invoke('vrui-input', ev) },
   /** 🎵 the Bilibili player kept in step with the room: op time / seek / rate / pause / play → { t, paused, ended, stall } or null (no player yet) */
   embedMedia: (op, arg) => ipcRenderer.invoke('embed-media', String(op), Number(arg)),
   /** 🎼 升降 Key (semitones, −12…12) for the YouTube / Bilibili player → { semis, wired, shifting, latency (s), pending, error } or null (no player) */

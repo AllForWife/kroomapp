@@ -16,6 +16,12 @@
     for (const kept of [fromLs, KEPT]) if (kept && typeof kept.rec === 'string' && Date.now() - kept.saved < 10 * 60_000) { sessionStorage.setItem('ktv.rejoin', kept.rec); break; }
   } catch { /* storage off */ }
 
+  const vmcSubs = new Set();
+  Object.defineProperty(window, '__kroomVmc', { value: (f) => { for (const cb of vmcSubs) try { cb(f); } catch { /* 訂閱者壞了 */ } } });
+  const ftSubs = new Set(), vruiSubs = new Set();
+  // 🥽 VR 裡的畫面（src/vr.rs 的 screencast）：base64 JPEG → 位元組，交給 vrui.ts
+  Object.defineProperty(window, '__kroomVrui', { value: (f) => { if (!vruiSubs.size || !f || typeof f.img !== 'string') return; const b = atob(f.img), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); for (const cb of vruiSubs) try { cb({ img: u, type: 'image/jpeg', w: f.w, h: f.h }); } catch { /* 訂閱者壞了 */ } } });
+  Object.defineProperty(window, '__kroomFacetrack', { value: (m) => { for (const cb of ftSubs) try { cb(m); } catch { /* 訂閱者壞了 */ } } });
   const invoke = (cmd, args) => {
     const t = window.__TAURI_INTERNALS__;
     return t ? t.invoke(cmd, args || {}).catch(() => null) : Promise.resolve(null);
@@ -74,6 +80,13 @@
     getSites: () => invoke('get_sites'),
     setSite: async (k) => { await keep(); return invoke('set_site', { key: String(k) }); },
     /** 🔊 the Bilibili player's volume (0–1) */
+    /** 🎤 VTuber 演出：收 VMC（src/vmc.rs；跟 Electron 版 preload.js 一樣的介面） */
+    vmc: { start: (port) => invoke('vmc_start', { port: Number.isInteger(port) ? port : null }), stop: () => invoke('vmc_stop'), onFrame: (cb) => { vmcSubs.add(cb); return () => vmcSubs.delete(cb); }, onError: () => () => {} },
+    /** 🎤 原生臉部追蹤（src/facetrack.rs；跟 Electron 版 preload.js 一樣的介面） */
+    /** 🥽 VTuber 的 VR（src/vr.rs；跟 Electron 版 preload.js 一樣的介面；只有 Windows） */
+    vr: { get: () => invoke('vr_get'), set: (on) => invoke('vr_set', { on: !!on }), enter: () => invoke('vr_enter') },
+    vrui: { start: () => invoke('vrui_start'), stop: () => invoke('vrui_stop'), onFrame: (cb) => { vruiSubs.add(cb); return () => vruiSubs.delete(cb); }, input: (ev) => invoke('vrui_input', { ev }) },
+    facetrack: { available: () => invoke('facetrack_available'), start: (o) => invoke('facetrack_start', { opts: o || {} }), stop: () => invoke('facetrack_stop'), onStatus: (cb) => { ftSubs.add(cb); return () => ftSubs.delete(cb); } },
     setEmbedVolume: async (v) => { const n = Number(v); if (!(n >= 0 && n <= 1)) return false; vol = n; send(everyFrame(window, []), 'vol', n); return true; },
     /** 🎵 the Bilibili player kept in step: op time / seek / rate / pause / play → { t, paused, ended, stall } or null */
     embedMedia: async (op, arg) => {

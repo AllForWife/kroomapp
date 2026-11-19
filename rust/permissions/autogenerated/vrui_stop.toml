@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vrui-stop"
+description = "Enables the vrui_stop command without any pre-configured scope."
+commands.allow = ["vrui_stop"]
+
+[[permission]]
+identifier = "deny-vrui-stop"
+description = "Denies the vrui_stop command without any pre-configured scope."
+commands.deny = ["vrui_stop"]

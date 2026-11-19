@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vrui-start"
+description = "Enables the vrui_start command without any pre-configured scope."
+commands.allow = ["vrui_start"]
+
+[[permission]]
+identifier = "deny-vrui-start"
+description = "Denies the vrui_start command without any pre-configured scope."
+commands.deny = ["vrui_start"]

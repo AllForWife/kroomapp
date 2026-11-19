@@ -170,6 +170,8 @@ pub fn create_window(h: &AppHandle, app: &Arc<App>, kept: &Value) -> tauri::Resu
         if config::flag(&config::config(), "unlockFps") {
             args.push_str(" --disable-frame-rate-limit --disable-gpu-vsync");
         }
+        // 🥽 VTuber 的 VR（vr.rs）：允許了才打開 WebXR／OpenXR
+        args.push_str(crate::vr::browser_args());
         // tests (tests/app-e2e.mjs): the page can be driven over the DevTools protocol — an unpackaged (debug) build only
         if cfg!(debug_assertions) || cfg!(feature = "devport") {
             if let Some(p) = std::env::var("KROOM_DEBUG_PORT").ok().filter(|p| p.chars().all(|c| c.is_ascii_digit())) {
@@ -200,6 +202,7 @@ pub fn create_window(h: &AppHandle, app: &Arc<App>, kept: &Value) -> tauri::Resu
             }
             a.loaded.send_replace(true);
             win_state(&w);
+            crate::vr::on_page_finished(&w);   // (🥽 換頁前在 VR 裡：接著回 VR)
         }
     });
     let win = b.build()?;

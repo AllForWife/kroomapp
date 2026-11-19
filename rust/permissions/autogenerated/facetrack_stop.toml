@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-facetrack-stop"
+description = "Enables the facetrack_stop command without any pre-configured scope."
+commands.allow = ["facetrack_stop"]
+
+[[permission]]
+identifier = "deny-facetrack-stop"
+description = "Denies the facetrack_stop command without any pre-configured scope."
+commands.deny = ["facetrack_stop"]

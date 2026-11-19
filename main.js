@@ -51,6 +51,10 @@ function startUrl() {
 }
 // ⚙ 設定 → 解除螢幕更新率限制: frames are no longer held to the screen's refresh (vsync); read at start, so a change needs a restart
 if (readJson(configFile()).unlockFps) { app.commandLine.appendSwitch('disable-frame-rate-limit'); app.commandLine.appendSwitch('disable-gpu-vsync'); }
+// 🥽 VTuber 的 VR（config.json vr＝這台允許 VR，或用 --vr 開；src/vtlive/vrshell.ts）：WebXR 經 OpenXR 接 SteamVR。只有允許了才打開這些功能（一般玩家的 App 不變）；
+//   不會自己進 VR——VTuber 按「🥽 VR 模式」才進
+const VR_AT_LAUNCH = !!readJson(configFile()).vr || process.argv.includes('--vr');
+if (VR_AT_LAUNCH) app.commandLine.appendSwitch('enable-features', 'WebXR,OpenXR');
 const START = STEAM ? withStore(startUrl()) : startUrl();
 const ORIGIN = new URL(START).origin;
 
@@ -141,6 +145,70 @@ ipcMain.handle('steam-id', (e) => (STEAM && steamworks && originOf(e.senderFrame
 ipcMain.handle('login-with-browser', (e) => originOf(e.senderFrame?.url || '') === ORIGIN && handoff('login'));
 // the page's ⚙ 設定 (src/ui/appsettings.ts): the app-level display switch, and a restart that comes back into the same room
 const fromSite = (e) => originOf(e.senderFrame?.url || '') === ORIGIN;
+// 🎤 VMC 接收（vmc.js，docs/VTUBER-PERFORMER-SPEC.md §5.2）：VTuber 演出用，頁面要求才開；一個視窗一個接收器，視窗關了就停
+const vmcOf = new Map();
+ipcMain.handle('vmc-start', (e, port) => { if (!fromSite(e)) return { ok: false }; const wc = e.sender; vmcOf.get(wc.id)?.stop(); const p = Number.isInteger(port) && port > 1023 && port < 65536 ? port : 39539;
+  try { const r = require('./vmc').startVmc({ port: p, onFrame: (f) => { if (!wc.isDestroyed()) wc.send('vmc-frame', f); }, onError: (err) => { if (!wc.isDestroyed()) wc.send('vmc-error', String(err && err.message || err)); } }); vmcOf.set(wc.id, r); wc.once('destroyed', () => { r.stop(); vmcOf.delete(wc.id); }); return { ok: true, port: p }; } catch (err) { return { ok: false, error: String(err && err.message || err) }; } });
+ipcMain.handle('vmc-stop', (e) => { if (!fromSite(e)) return false; vmcOf.get(e.sender.id)?.stop(); vmcOf.delete(e.sender.id); return true; });
+// 🎤 原生臉部追蹤（native/facetrack：攝影機 → GPU／CPU 辨識 → VMC 送回上面的接收器；docs/VTUBER-PERFORMER-SPEC.md §5.1）：頁面要求才開子程式，一個視窗一個
+//   打包時在 resources/facetrack/<arch>/（package.json extraResources，從 facetrack-dist/ 來：facetrack.mjs）；開發時用 facetrack-dist/ 或 native/facetrack/dist/
+const ftOf = new Map();
+function facetrackExe() {
+  const os = process.platform === 'win32' ? 'win' : 'mac', arch = process.arch === 'arm64' ? 'arm64' : 'x64', name = process.platform === 'win32' ? 'kroom-facetrack.exe' : 'kroom-facetrack';
+  const dirs = [app.isPackaged && path.join(process.resourcesPath, 'facetrack', arch), path.join(__dirname, 'facetrack-dist', os, arch), path.join(__dirname, '..', 'native', 'facetrack', 'dist', os, arch)].filter(Boolean);   // (開發：npm run facetrack 放的、或 native/facetrack 自己 stage 的)
+  for (const d of dirs) if (fs.existsSync(path.join(d, name))) return { dir: d, exe: path.join(d, name) };
+  return null;
+}
+const ftStop = (id) => { const c = ftOf.get(id); if (!c) return; ftOf.delete(id); try { c.stdin.write('stop\n'); c.stdin.end(); } catch { /* 已結束 */ } setTimeout(() => { try { c.kill(); } catch { /* 已結束 */ } }, 1500); };
+ipcMain.handle('facetrack-start', async (e, o = {}) => {
+  if (!fromSite(e)) return { ok: false }; const wc = e.sender; ftStop(wc.id);
+  const f = facetrackExe(); if (!f) return { ok: false, error: '這個版本的 App 沒有附原生臉部追蹤' };
+  if (MAC && !(await systemPreferences.askForMediaAccess('camera'))) return { ok: false, error: '沒有攝影機權限（系統設定 → 隱私權與安全性 → 相機）' };
+  const port = Number.isInteger(o.port) && o.port > 1023 && o.port < 65536 ? o.port : 39539, cam = Number.isInteger(o.camera) && o.camera >= 0 && o.camera < 16 ? o.camera : 0;
+  const backend = ['auto', 'nvidia', 'onnx', 'coreml', 'directml', 'cpu'].includes(o.backend) ? o.backend : 'auto';
+  const args = ['--port', String(port), '--camera', String(cam), '--backend', backend, ...(o.mirror ? ['--mirror'] : [])];
+  const c = require('child_process').spawn(f.exe, args, { cwd: f.dir, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  ftOf.set(wc.id, c); let buf = '';
+  const send = (m) => { if (!wc.isDestroyed()) wc.send('facetrack-status', m); };
+  c.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line) { try { send(JSON.parse(line)); } catch { /* 不是 JSON */ } } } });
+  c.stderr.on('data', (d) => console.log('[facetrack]', String(d).trim()));
+  c.on('exit', (code) => { if (ftOf.get(wc.id) === c) ftOf.delete(wc.id); send({ t: 'exit', code }); });
+  c.on('error', (err) => send({ t: 'error', e: String(err && err.message || err) }));
+  wc.once('destroyed', () => ftStop(wc.id));
+  return { ok: true, port };
+});
+ipcMain.handle('facetrack-stop', (e) => { if (!fromSite(e)) return false; ftStop(e.sender.id); return true; });
+ipcMain.handle('facetrack-available', (e) => fromSite(e) && !!facetrackExe());
+// 🥽 VR：允許（第一次要重開 App 打開 WebXR）、進 VR（瀏覽器要「使用者按過」才給開 VR：這裡用 userGesture 代按）、
+//   VR 裡的「畫面」（vrui.ts）：頁面畫好的每一幀（只在有變的時候，最多 20 fps）縮成 JPEG 給頁面貼在 VR 裡；雷射點的位置用 sendInputEvent 變成真的滑鼠動作
+const vrOn = () => !!readJson(configFile()).vr;
+ipcMain.handle('vr-get', (e) => fromSite(e) && vrOn());
+ipcMain.handle('vr-set', (e, on) => {
+  if (!fromSite(e)) return { ok: false }; writeJson(configFile(), { ...readJson(configFile()), vr: !!on });
+  if (on && !VR_AT_LAUNCH) { setTimeout(() => { app.relaunch(); app.exit(0); }, 600); return { ok: true, relaunch: true }; }   // (WebXR 的開關只能在啟動時打開)
+  return { ok: true };
+});
+ipcMain.handle('vr-enter', async (e) => { if (!fromSite(e)) return false; try { await e.sender.executeJavaScript('window.__kroomVrEnterNow && window.__kroomVrEnterNow()', true); return true; } catch { return false; } });
+const vruiOf = new Map();
+ipcMain.handle('vrui-start', (e) => {
+  if (!fromSite(e)) return false; const wc = e.sender; if (vruiOf.has(wc.id)) return true;
+  let last = 0, timer = null, latest = null;
+  const push = () => { timer = null; if (!latest || wc.isDestroyed()) return; const img = latest; latest = null; last = Date.now();
+    const bw = BrowserWindow.fromWebContents(wc), [w, h] = bw ? bw.getContentSize() : [img.getSize().width, img.getSize().height];
+    const small = img.getSize().width > 1600 ? img.resize({ width: 1600, quality: 'good' }) : img; wc.send('vrui-frame', { img: small.toJPEG(80), type: 'image/jpeg', w, h }); };
+  wc.beginFrameSubscription(false, (img) => { latest = img; if (!timer) timer = setTimeout(push, Math.max(0, 50 - (Date.now() - last))); });
+  vruiOf.set(wc.id, () => { clearTimeout(timer); try { wc.endFrameSubscription(); } catch { /* 已關 */ } });
+  wc.once('destroyed', () => vruiOf.delete(wc.id));
+  wc.invalidate(); return true;   // (先送一張完整的)
+});
+ipcMain.handle('vrui-stop', (e) => { if (!fromSite(e)) return false; vruiOf.get(e.sender.id)?.(); vruiOf.delete(e.sender.id); return true; });
+ipcMain.handle('vrui-input', (e, ev) => {
+  if (!fromSite(e) || !ev || !vruiOf.has(e.sender.id)) return false; const x = Math.round(Number(ev.x) || 0), y = Math.round(Number(ev.y) || 0), wc = e.sender;
+  if (ev.type === 'move') wc.sendInputEvent({ type: 'mouseMove', x, y });
+  else if (ev.type === 'down' || ev.type === 'up') wc.sendInputEvent({ type: ev.type === 'down' ? 'mouseDown' : 'mouseUp', x, y, button: 'left', clickCount: 1 });
+  else if (ev.type === 'wheel') wc.sendInputEvent({ type: 'mouseWheel', x, y, deltaX: 0, deltaY: -Math.max(-2000, Math.min(2000, Number(ev.dy) || 0)), canScroll: true });
+  return true;
+});
 ipcMain.handle('get-display', (e) => { if (!fromSite(e)) return null; const c = readJson(configFile()); return { unlockFps: !!c.unlockFps, betaUpdates: STEAM ? undefined : !!c.betaUpdates, version: app.getVersion() }; });
 // 🧪 App 測試版 (shown to admins only): this install also takes betas (GitHub pre-releases); turned on, it looks for one right away
 ipcMain.handle('set-beta', (e, on) => {
@@ -450,17 +518,17 @@ function guard(wc) {
 }
 
 function permissions(ses) {
-  // the K ROOM page: microphone (no camera), fullscreen, pointer lock (mouse look), clipboard writes; embedded players (YouTube, Bilibili…): fullscreen only
+  // the K ROOM page: microphone, camera (🎤 VTuber 演出的攝影機動作捕捉：頁面只在 VTuber 打開追蹤時才要), fullscreen, pointer lock (mouse look), clipboard writes; embedded players (YouTube, Bilibili…): fullscreen only
   const ok = (perm, url, media) => {
     if (perm === 'fullscreen') return true;
     if (!isApp(url)) return false;
-    if (perm === 'media') return !(media || []).includes('video');
+    if (perm === 'media') return true;
     return perm === 'pointerLock' || perm === 'clipboard-sanitized-write' || perm === 'keyboardLock' || perm === 'speaker-selection';
   };
   ses.setPermissionRequestHandler((wc, perm, cb, d) => {
     const yes = ok(perm, d.requestingUrl || wc.getURL(), d.mediaTypes);
     // a Mac also asks the player once (系統設定 → 隱私權與安全性 → 麥克風); turned off there, the page hears nothing and is told no
-    if (yes && perm === 'media' && MAC) return void systemPreferences.askForMediaAccess('microphone').then(cb, () => cb(false));
+    if (yes && perm === 'media' && MAC) { const kinds = (d.mediaTypes || []).includes('video') ? ['camera'] : []; if ((d.mediaTypes || []).includes('audio') || !kinds.length) kinds.push('microphone'); return void Promise.all(kinds.map((k) => systemPreferences.askForMediaAccess(k))).then((r) => cb(r.every(Boolean)), () => cb(false)); }
     cb(yes);
   });
   // (the check also decides whether the page may see the microphones' names and ids — without it 使用的麥克風 listed nothing; the origin may come
@@ -499,6 +567,8 @@ function createWindow() {
   const winState = () => { try { if (win && !win.isDestroyed()) win.webContents.send('win-state', { min: win.isMinimized() || !win.isVisible(), focus: win.isFocused() }); } catch { /* closing */ } };
   for (const ev of ['minimize', 'restore', 'hide', 'show', 'blur', 'focus']) win.on(ev, winState);
   win.webContents.on('did-finish-load', winState);
+  // 🥽 VR：換頁（例如排程的演唱會開始）之前在 VR 裡的話，新頁面載好接著回到 VR（頁面自己記得，src/main.ts __kroomVrResume）；不會自己開始 VR
+  win.webContents.on('did-finish-load', () => { if (VR_AT_LAUNCH) setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.executeJavaScript('window.__kroomVrResume && window.__kroomVrResume()', true).catch(() => {}); }, 1200); });
   // Windows: the page (WebRTC decoding, Web Audio mixing) and Chromium's service processes (audio, network) one step above normal — on a PC with many programs open,
   // the program in front got the CPU first and K ROOM's voice broke up behind it. Checked again now and then (a new page can get a new process)
   if (process.platform === 'win32') {

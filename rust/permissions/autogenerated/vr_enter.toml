@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vr-enter"
+description = "Enables the vr_enter command without any pre-configured scope."
+commands.allow = ["vr_enter"]
+
+[[permission]]
+identifier = "deny-vr-enter"
+description = "Denies the vr_enter command without any pre-configured scope."
+commands.deny = ["vr_enter"]

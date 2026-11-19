@@ -14,6 +14,9 @@ mod updates;
 mod mac;
 #[cfg(windows)]
 mod win;
+mod vmc;
+mod vr;
+mod facetrack;
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -25,7 +28,7 @@ use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
 /// the app's own commands (build.rs lists the same ones; each is allowed to this run's site only, in setup)
 const COMMANDS: &[&str] = &[
     "login_with_browser", "get_display", "set_beta", "set_unlock_fps", "relaunch", "get_sites", "set_site", "set_awake", "set_presence",
-    "steam_ticket", "steam_id", "keep_room", "open_external", "js_result", "get_engine", "set_engine",
+    "steam_ticket", "steam_id", "keep_room", "open_external", "js_result", "get_engine", "set_engine", "vmc_start", "vmc_stop", "facetrack_start", "facetrack_stop", "facetrack_available", "vr_get", "vr_set", "vr_enter", "vrui_start", "vrui_stop", "vrui_input",
 ];
 
 /// the Discord application 「K ROOM」 (its name is the 「正在玩」 line)
@@ -251,6 +254,17 @@ fn main() {
             cmds::js_result,
             cmds::get_engine,
             cmds::set_engine,
+            cmds::vmc_start,
+            cmds::vmc_stop,
+            cmds::facetrack_start,
+            cmds::facetrack_stop,
+            cmds::facetrack_available,
+            cmds::vr_get,
+            cmds::vr_set,
+            cmds::vr_enter,
+            cmds::vrui_start,
+            cmds::vrui_stop,
+            cmds::vrui_input,
         ]);
     #[cfg(target_os = "macos")]
     {
