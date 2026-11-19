@@ -22,7 +22,7 @@ function stage(target) {
   const built = [path.join(ROOT, 'target', target, 'release', exe), path.join(ROOT, 'target', 'release', exe)].find((p) => fs.existsSync(p) && (target === host || p.includes(target)));
   if (!built) throw new Error('找不到建好的 ' + exe + '（先加 --build）');
   const ort = path.join(ROOT, 'ort', ortDir);
-  if (!fs.existsSync(ort)) execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', path.join(ROOT, 'scripts', 'fetch_ort.py'), ortDir], { stdio: 'inherit' });   // (第一次：抓官方 ONNX Runtime)
+  if (!fs.existsSync(ort)) execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', path.join(ROOT, 'scripts', 'fetch_ort.py'), ortDir], { stdio: 'inherit', env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });   // (第一次：抓官方 ONNX Runtime)
   const out = path.join(OUT, os, arch); fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(path.join(out, 'facetrack-models'), { recursive: true });
   fs.copyFileSync(built, path.join(out, exe)); fs.chmodSync(path.join(out, exe), 0o755);
   for (const f of fs.readdirSync(path.join(ROOT, 'models'))) fs.copyFileSync(path.join(ROOT, 'models', f), path.join(out, 'facetrack-models', f));
@@ -37,7 +37,7 @@ function stage(target) {
 function macSign(out, exe) {
   const id = process.env.FACETRACK_SIGN_IDENTITY || (process.env.APPLE_CERTIFICATE && process.env.APPLE_SIGNING_IDENTITY) || '';
   if (!id) return;
-  let kc = '';
+  let kc = '', prevKcs = null;
   try {
     if (process.env.APPLE_CERTIFICATE && !process.env.FACETRACK_SIGN_IDENTITY) {
       kc = path.join(ROOT, 'target', 'facetrack-sign.keychain-db'); const pw = 'facetrack-' + Date.now(), p12 = path.join(ROOT, 'target', 'facetrack-sign.p12');
@@ -46,11 +46,17 @@ function macSign(out, exe) {
       execFileSync('security', ['create-keychain', '-p', pw, kc]); execFileSync('security', ['unlock-keychain', '-p', pw, kc]);
       execFileSync('security', ['import', p12, '-k', kc, '-P', process.env.APPLE_CERTIFICATE_PASSWORD ?? '', '-T', '/usr/bin/codesign']);
       execFileSync('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:', '-s', '-k', pw, kc], { stdio: 'ignore' });
+      // codesign 用名字（「Developer ID Application」）找身分只看使用者的 keychain 搜尋清單：暫時的 keychain 要加進去（Tauri 自己簽也是這樣），簽完還原
+      prevKcs = execFileSync('security', ['list-keychains', '-d', 'user']).toString().split(/\r?\n/).map((l) => l.trim().replace(/^"|"$/g, '')).filter(Boolean);
+      execFileSync('security', ['list-keychains', '-d', 'user', '-s', kc, ...prevKcs]);
       fs.rmSync(p12, { force: true });
     }
     const base = ['--force', '--options', 'runtime', '--sign', id, ...(id === '-' ? [] : ['--timestamp']), ...(kc ? ['--keychain', kc] : [])];
     for (const f of fs.readdirSync(out)) if (f.endsWith('.dylib')) execFileSync('codesign', [...base, path.join(out, f)], { stdio: 'inherit' });
     execFileSync('codesign', [...base, '--entitlements', path.join(ROOT, 'macos', 'facetrack.entitlements'), path.join(out, exe)], { stdio: 'inherit' });
     console.log('  簽好了（' + (id === '-' ? 'ad-hoc' : id) + '）');
-  } finally { if (kc) try { execFileSync('security', ['delete-keychain', kc], { stdio: 'ignore' }); } catch { /* 已刪 */ } }
+  } finally {
+    if (prevKcs) try { execFileSync('security', ['list-keychains', '-d', 'user', '-s', ...prevKcs]); } catch { /* 還原不了：不影響這次打包 */ }
+    if (kc) try { execFileSync('security', ['delete-keychain', kc], { stdio: 'ignore' }); } catch { /* 已刪 */ }
+  }
 }
