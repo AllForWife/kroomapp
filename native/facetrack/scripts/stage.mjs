@@ -22,7 +22,7 @@ function stage(target) {
   const built = [path.join(ROOT, 'target', target, 'release', exe), path.join(ROOT, 'target', 'release', exe)].find((p) => fs.existsSync(p) && (target === host || p.includes(target)));
   if (!built) throw new Error('找不到建好的 ' + exe + '（先加 --build）');
   const ort = path.join(ROOT, 'ort', ortDir);
-  if (!fs.existsSync(ort)) execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', path.join(ROOT, 'scripts', 'fetch_ort.py'), ortDir], { stdio: 'inherit', env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });   // (第一次：抓官方 ONNX Runtime)
+  if (!fs.existsSync(ort)) execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', '-X', 'utf8', path.join(ROOT, 'scripts', 'fetch_ort.py'), ortDir], { stdio: 'inherit' });   // (-X utf8：CI 的 Windows 主控台是 cp1252，印「←」會中斷；-I 會忽略 PYTHONUTF8 這類環境變數，所以用參數)   // (第一次：抓官方 ONNX Runtime)
   const out = path.join(OUT, os, arch); fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(path.join(out, 'facetrack-models'), { recursive: true });
   fs.copyFileSync(built, path.join(out, exe)); fs.chmodSync(path.join(out, exe), 0o755);
   for (const f of fs.readdirSync(path.join(ROOT, 'models'))) fs.copyFileSync(path.join(ROOT, 'models', f), path.join(out, 'facetrack-models', f));
