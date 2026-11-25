@@ -2,3 +2,4 @@ node_modules/
 dist/
 dist-steam/
 facetrack-dist/
+steam-upload/
