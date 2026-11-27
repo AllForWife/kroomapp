@@ -2111,7 +2111,7 @@ dependencies = [
 
 [[package]]
 name = "kroom"
-version = "2.0.0-rust.6"
+version = "2.0.0-rust.7"
 dependencies = [
  "base64 0.22.1",
  "block2",

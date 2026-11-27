@@ -1,6 +1,6 @@
 [package]
 name = "kroom"
-version = "2.0.0-rust.6"
+version = "2.0.0-rust.7"
 description = "K ROOM for Windows and macOS (Rust / Tauri port of desktop/)"
 edition = "2021"
 publish = false

@@ -28,7 +28,7 @@ pub fn attach(win: &WebviewWindow, app: Arc<App>) {
         let Ok(core) = controller.CoreWebView2() else { return };
         let mut token = 0i64;
 
-        // 🎤 the K ROOM page: the microphone (no camera); nothing else asks. Fullscreen, pointer lock, keyboard lock, speaker selection and
+        // 🎤📷 the K ROOM page: the microphone and the camera; nothing else asks. Fullscreen, pointer lock, keyboard lock, speaker selection and
         // clipboard writes are not permission prompts in WebView2 (allowed as in Electron). Embedded players get nothing.
         let a = app.clone();
         let _ = core.add_PermissionRequested(
@@ -38,7 +38,7 @@ pub fn attach(win: &WebviewWindow, app: Arc<App>) {
                 args.PermissionKind(&mut kind)?;
                 let mut uri = PWSTR::null();
                 args.Uri(&mut uri)?;
-                let ok = kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE && a.is_app(&take_pwstr(uri));
+                let ok = (kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA) && a.is_app(&take_pwstr(uri)); // (camera: 表情追蹤／VTuber 的網頁攝影機，Electron 版 1.0.17 起也放行)
                 if let Ok(a3) = args.cast::<ICoreWebView2PermissionRequestedEventArgs3>() {
                     let _ = a3.SetSavesInProfile(false.into()); // (asked again next time: the rules here decide, not a remembered answer)
                 }
